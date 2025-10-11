@@ -7,7 +7,7 @@ import {
     TransactionConfirmationStatus,
     TransactionExpiredBlockheightExceededError
 } from '@solana/web3.js';
-import { createJupiterApiClient } from '@jup-ag/api';
+import { createJupiterApiClient, QuoteResponse } from '@jup-ag/api';
 import * as dotenv from 'dotenv';
 import bs58 from 'bs58';
 
@@ -105,10 +105,9 @@ const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
 const WALLET_SECRET_KEY = process.env.WALLET_SECRET_KEY;
 const JUPITER_API_URL = process.env.JUPITER_API_URL;
 
-// Token Mints (Example: SOL to USDC)
-const INPUT_MINT_ADDRESS = 'So11111111111111111111111111111111111111112'; // SOL
-const OUTPUT_MINT_ADDRESS = '7Tx8qTXSakpfaSFjdztPGQ9n2uyT1eUkYz7gYxxopump'; // ASSDAQ
-const AMOUNT_TO_SWAP = 0.001; // 0.01 SOL (as a whole number)
+// Token Mints (Example: WETH to ASSDAQ)
+const WETH_MINT = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'; // WETH
+const ASSDAQ_MINT = '7Tx8qTXSakpfaSFjdztPGQ9n2uyT1eUkYz7gYxxopump'; // ASSDAQ
 const SLIPPAGE_BPS = 50; // 50 basis points = 0.5%
 
 function loadWallet(): Keypair {
@@ -129,40 +128,39 @@ function loadWallet(): Keypair {
     }
 }
 
-async function main() {
-    if (!RPC_ENDPOINT) {
-        throw new Error("RPC_ENDPOINT not set in .env");
-    }
+if (!RPC_ENDPOINT) {
+    throw new Error("RPC_ENDPOINT not set in .env");
+}
 
-    // 1. Setup
-    const wallet = loadWallet();
-    const connection = new Connection(RPC_ENDPOINT, 'confirmed');
-    // Using the public API client for simplicity.
-    const jupiter = createJupiterApiClient({ basePath: JUPITER_API_URL });
+// 1. Setup
+const wallet = loadWallet();
+const connection = new Connection(RPC_ENDPOINT, 'confirmed');
+// Using the public API client for simplicity.
+const jupiter = createJupiterApiClient({ basePath: JUPITER_API_URL });
 
-    console.log(`Wallet Public Key: ${wallet.publicKey.toBase58()}`);
+console.log(`Wallet Public Key: ${wallet.publicKey.toBase58()}`);
 
-    // Convert floating point amount to the smallest unit (lamports/nanotokens)
-    // SOL has 9 decimals. Other tokens may vary (e.g., USDC has 6).
-    const inputAmount = AMOUNT_TO_SWAP * 10 ** 9;
-
+async function quote(inputMint: string, outputMint: string, inputAmount: number): Promise<QuoteResponse> {
     // 2. Get Quote
-    console.log(`\n--- 1. Fetching quote for ${AMOUNT_TO_SWAP} SOL to ASSDAQ... ---`);
+    console.log(`\n--- 1. Fetching quote for ${inputAmount} ${inputMint} to ${outputMint}... ---`);
     const quoteResponse = await jupiter.quoteGet({
-        inputMint: INPUT_MINT_ADDRESS,
-        outputMint: OUTPUT_MINT_ADDRESS,
+        inputMint: inputMint,
+        outputMint: outputMint,
         amount: inputAmount,
         slippageBps: SLIPPAGE_BPS,
     });
 
     if (!quoteResponse.routePlan) {
         console.error("No route found for the swap.");
-        return;
+        throw new Error("No route found for the swap.");
     }
 
     console.log(`Best route found with a gross ${quoteResponse.routePlan.length} step(s).`);
-    console.log(`Out Amount (Estimated): ${Number(quoteResponse.outAmount) / 10**6} ASSDAQ`); // USDC has 6 decimals
+    console.log(`Out Amount (Estimated): ${Number(quoteResponse.outAmount)} ${outputMint}`);
+    return quoteResponse;
+}
 
+async function swap(quoteResponse: QuoteResponse) {
     // 3. Get Swap Transaction
     console.log("\n--- 2. Getting swap transaction... ---");
     const swapResponse = await jupiter.swapPost({
@@ -212,6 +210,22 @@ async function main() {
         // You might want to re-throw or handle the error appropriately here
         throw error; 
     }
+}
+
+async function main() {
+
+    const inputAmount = 1000 * 10 ** 6;
+
+    // 2. Get Quote
+    console.log(`\n--- 1. Fetching quote for ${inputAmount} ASSDAQ to WETH... ---`);
+    const quoteResponse = await quote(ASSDAQ_MINT, WETH_MINT, inputAmount)
+
+    if (!quoteResponse.routePlan) {
+        console.error("No route found for the swap.");
+        return;
+    }
+
+    swap(quoteResponse);
 }
 
 main().catch(err => {
