@@ -6,7 +6,10 @@
     "start": "ts-node src/index.ts",
     "build": "tsc",
     "dev": "ts-node-dev src/index.ts",
-    "wormhole": "ts-node-dev src/index-executor.ts"
+    "bridge-sol-to-base": "ts-node-dev src/bridge-ASSDAQ-sol-to-base.ts",
+    "bridge-base-to-sol": "ts-node-dev src/bridge-ASSDAQ-base-to-sol.ts",
+    "bridge-eth-to-weth-base-to-sol": "ts-node-dev src/scripts/token-transfer-ETH-base-to-WETH-sol.ts",
+    "bridge-weth-to-eth-sol-to-base": "ts-node-dev src/scripts/token-transfer-WETH-sol-to-ETH-base.ts"
   },
   "keywords": [
     "solana",
@@ -22,8 +25,10 @@
     "@solana/web3.js": "^1.91.7",
     "bs58": "^4.0.1",
     "dotenv": "^16.4.5",
-    "@wormhole-foundation/sdk": "3.4.1",
-    "@wormhole-foundation/sdk-connect": "3.4.1",
+    "@wormhole-foundation/sdk": "3.8.5",
+    "@wormhole-foundation/sdk-base": "3.8.5",
+    "@wormhole-foundation/sdk-definitions": "3.8.5",
+    "@wormhole-foundation/sdk-connect": "3.8.5",
     "@wormhole-foundation/sdk-definitions-ntt": "3.0.2",
     "@wormhole-foundation/sdk-evm-ntt": "3.0.2",
     "@wormhole-foundation/sdk-route-ntt": "3.0.2",
@@ -37,12 +42,6 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.5"
-  },
-  "overrides": {
-    "@wormhole-foundation/sdk": "3.4.1",
-    "@wormhole-foundation/sdk-connect": "3.4.1",
-    "@wormhole-foundation/sdk-base": "3.4.1",
-    "@wormhole-foundation/sdk-definitions": "3.4.1"
   },
   "bugs": {
     "url": "https://github.com/kuchecoin/arbitrage/issues"

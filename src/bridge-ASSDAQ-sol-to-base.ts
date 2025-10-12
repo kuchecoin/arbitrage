@@ -72,7 +72,7 @@ dotenv.config();
   });
 
   //TODO: change to token amount that should be transferred
-  const amtString = "9";
+  const amtString = "8";
   const amt = amount.units(
     amount.parse(amtString, await srcNtt.getTokenDecimals())
   );
