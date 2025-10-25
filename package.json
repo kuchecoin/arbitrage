@@ -6,10 +6,11 @@
     "start": "ts-node src/index.ts",
     "build": "tsc",
     "dev": "ts-node-dev src/index.ts",
-    "bridge-sol-to-base": "ts-node-dev src/bridge-ASSDAQ-sol-to-base.ts",
-    "bridge-base-to-sol": "ts-node-dev src/bridge-ASSDAQ-base-to-sol.ts",
-    "bridge-eth-to-weth-base-to-sol": "ts-node-dev src/scripts/token-transfer-ETH-base-to-WETH-sol.ts",
-    "bridge-weth-to-eth-sol-to-base": "ts-node-dev src/scripts/token-transfer-WETH-sol-to-ETH-base.ts"
+    "bridge-ASSDAQ-sol-to-base": "ts-node-dev src/bridge-ASSDAQ-sol-to-base.ts",
+    "bridge-ASSDAQ-base-to-sol": "ts-node-dev src/bridge-ASSDAQ-base-to-sol.ts",
+    "bridge-eth-to-weth-sol": "ts-node-dev src/scripts/bridge-eth-to-weth-sol.ts",
+    "bridge-weth-sol-to-eth": "ts-node-dev src/scripts/bridge-weth-sol-to-eth.ts",
+    "simple-trade-from-uniswap-eth-to-assdaq": "ts-node-dev src/simple-trade-from-uniswap-v2-assdaq.ts"
   },
   "keywords": [
     "solana",

@@ -1,14 +1,9 @@
 import {
-	Chain,
-	Network,
 	Wormhole,
 	amount,
 	wormhole,
 	TokenId,
 	TokenTransfer,
-	ChainContext,
-	ChainAddress,
-	Signer,
 } from '@wormhole-foundation/sdk';
 import evm from '@wormhole-foundation/sdk/evm';
 import solana from '@wormhole-foundation/sdk/solana';
@@ -16,11 +11,14 @@ import sui from '@wormhole-foundation/sdk/sui';
 import aptos from '@wormhole-foundation/sdk/aptos';
 import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 
+// Define the amount of tokens to transfer
+const amt = '0.00083662';
+
 (async function () {
 	const wh = await wormhole('Mainnet', [solana, evm, sui, aptos], {
       chains: {
-        Base: {
-          "rpc": process.env.BASE_RPC_ENDPOINT,
+        Ethereum: {
+          "rpc": process.env.ETH_RPC_ENDPOINT,
         },
         Solana: {
           "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
@@ -29,22 +27,19 @@ import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 	});
 
 	// Grab chain Contexts -- these hold a reference to a cached rpc client
-	const origChain = wh.getChain('Base');
-	const destChain = wh.getChain('Solana');
+	const origChain = wh.getChain('Solana');
+	const destChain = wh.getChain('Ethereum');
 
 	// Get signer from local key but anything that implements
 	// Signer interface (e.g. wrapper around web wallet) should work
-	const source = await getSigner<"Mainnet", "Base">(origChain);
-	const destination = await getSigner<"Mainnet", "Solana">(destChain);
+	const source = await getSigner<"Mainnet", "Solana">(origChain);
+	const destination = await getSigner<"Mainnet", "Ethereum">(destChain);
 
 	// TODO: uncomment the comment below for transferring native gas tokens
-	// const tokenId = Wormhole.tokenId('Solana', '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'); // WETH on Solana
+	const tokenId = Wormhole.tokenId('Solana', '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'); // WETH on Solana
 	// Shortcut to allow transferring native gas token
-	const tokenId = Wormhole.tokenId(origChain.chain, 'native');
+	// const tokenId = Wormhole.tokenId(origChain.chain, 'native');
 	console.log(`token ID for ${origChain.chain}: `, tokenId);
-
-	// Define the amount of tokens to transfer
-	const amt = '0.001';
 
 	// Check token balance on source chain
 	console.log('Checking source token balance...');
@@ -96,10 +91,10 @@ import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 async function tokenTransfer(
 	wh: Wormhole<"Mainnet">,
 	route: {
-		token: TokenId<'Base'>;
+		token: TokenId<'Solana'>;
 		amount: bigint;
-		source: SignerStuff<"Mainnet", "Base">;
-		destination: SignerStuff<"Mainnet", "Solana">;
+		source: SignerStuff<"Mainnet", "Solana">;
+		destination: SignerStuff<"Mainnet", "Ethereum">;
 		delivery?: {
 			protocol: TokenTransfer.Protocol;
 			nativeGas?: bigint;
@@ -148,7 +143,7 @@ async function tokenTransfer(
 		// For ExecutorTokenBridge, we need to estimate msgValue and gasLimit for the destination chain
 		// then get a quote with these parameters to obtain the executor quote
 		const dstTb = await route.destination.chain.getExecutorTokenBridge();
-		const dstToken = await TokenTransfer.lookupDestinationToken<"Mainnet", "Base", "Solana">(
+		const dstToken = await TokenTransfer.lookupDestinationToken<"Mainnet", "Solana", "Ethereum">(
 			route.source.chain,
 			route.destination.chain,
 			route.token
@@ -209,11 +204,13 @@ async function tokenTransfer(
 	const timeout = 30 * 60 * 1000; // Timeout in milliseconds (20 minutes)
 	await xfer.fetchAttestation(timeout);
 	// console.log(`Got Attestation: `, attestIds);
-	console.log(' ');
+	console.log(' Done');
 
 	// 3) Redeem the VAA on the dest chain
-	console.log('Completing Transfer');
-	const destTxids = await xfer.completeTransfer(route.destination.signer);
-	console.log(`Completed Transfer: `, destTxids);
-	console.log('Transfer completed successfully');
+	if (route.delivery?.protocol === 'TokenBridge') {
+		console.log('Completing Transfer');
+		const destTxids = await xfer.completeTransfer(route.destination.signer);
+		console.log(`Completed Transfer: `, destTxids);
+		console.log('Transfer completed successfully');
+	}
 }
