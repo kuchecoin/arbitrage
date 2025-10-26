@@ -39,7 +39,7 @@ import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 	console.log(`token ID for ${origChain.chain}: `, tokenId);
 
 	// Define the amount of tokens to transfer
-	const amt = '0.001';
+	const amt = '0.1';
 
 	// Check token balance on source chain
 	console.log('Checking source token balance...');
