@@ -5,11 +5,17 @@ import {
     TransactionSignature,
     Finality,
     TransactionConfirmationStatus,
-    TransactionExpiredBlockheightExceededError
+    TransactionExpiredBlockheightExceededError,
+    PublicKey
 } from '@solana/web3.js';
-import { createJupiterApiClient, QuoteResponse } from '@jup-ag/api';
+import { createJupiterApiClient, QuoteResponse, SwapInfoToJSON } from '@jup-ag/api';
 import * as dotenv from 'dotenv';
 import bs58 from 'bs58';
+
+import { PumpAmmSdk, SwapSolanaState, OnlinePumpAmmSdk, buyBaseInput } from "@pump-fun/pump-swap-sdk";
+
+// Initialize SDK
+const pumpAmmSdk = new PumpAmmSdk();
 
 function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -111,6 +117,7 @@ const WETH_MINT = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'; // WETH on sol
 const ASSDAQ_MINT = '7Tx8qTXSakpfaSFjdztPGQ9n2uyT1eUkYz7gYxxopump'; // ASSDAQ on sol
 const ASSDAQ_CA_ETH = '0xF4F53989d770458B659f8D094b8E31415F68A4Cf';
 const WETH_CA_ETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const SLIPPAGE_BPS = 50; // 50 basis points = 0.5%
 function loadWallet(): Keypair {
     if (!WALLET_SECRET_KEY) {
@@ -137,6 +144,7 @@ if (!RPC_ENDPOINT) {
 // 1. Setup
 const wallet = loadWallet();
 const connection = new Connection(RPC_ENDPOINT, 'confirmed');
+const onlinePumpAmm = new OnlinePumpAmmSdk(connection);
 // Using the public API client for simplicity.
 const jupiter = createJupiterApiClient({ basePath: JUPITER_API_URL });
 
@@ -214,7 +222,8 @@ async function swap(quoteResponse: QuoteResponse) {
     }
 }
 
-import { ethers } from "ethers";
+import { BigNumberish, ethers } from "ethers";
+import { NttBindings } from '@wormhole-foundation/sdk-evm-ntt/dist/cjs/bindings';
 dotenv.config();
 
 
@@ -270,6 +279,13 @@ function getAmountOut(amountIn: bigint, reserveIn: bigint, reserveOut: bigint): 
   const numerator = amountInWithFee * reserveOut;
   const denominator = reserveIn * 1000n + amountInWithFee;
   return numerator / denominator;
+}
+
+function getAmountOutPumpSwap(amountIn: number, baseAmount: number, quoteAmount: number) {
+    const amountInWithFee = amountIn * 990;
+    const numerator = amountInWithFee * baseAmount;
+    const denominator = quoteAmount * 1000 + amountInWithFee;
+    return numerator / denominator;
 }
 
 async function simpleSwapEthForAssdaq() {
@@ -365,42 +381,50 @@ async function main() {
   return { bestInput, bestProfit };
 }
   */
-    // Check sell on Sol buy on ETH:
-    for (let i = 1; i <= 3; ++i) {
-        const inputAmount = (1000 * 10 ** 6) * i;
-        const quoteResponse = await quote(ASSDAQ_MINT, WETH_MINT, inputAmount)
-        const expectedEthOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 8); //(weth has 8 decimals on sol)
-        console.log(`SOL: Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthOut}`);
 
+    const { reserveIn, reserveOut } = await getPairReserves(WETH_CA_ETH, ASSDAQ_CA_ETH);
+    const WETH_RESERVES = reserveIn;
+    const ASSDAQ_RESERVES = reserveOut;
+
+    const swapSolanaState = await onlinePumpAmm.swapSolanaState(new PublicKey('8r2FgpMpJiLiHBV6tzM21TqoHgWny4vkvuaN6Rv2So2H'), wallet.publicKey);
+    const { poolBaseAmount, poolQuoteAmount } = swapSolanaState;
+
+    const wethQuote = await quote(WETH_MINT, WSOL_MINT, 10**8); // for 1 eth
+    const wethPrice = Number(wethQuote.otherAmountThreshold) / (10**9); // wsol has 9 decimals
+    console.log("WETH price in SOL: " + wethPrice);
+    // Check sell on Sol buy on ETH:
+    for (let i = 1; i <= 5000; i+=1000) {
+        const inputAmount = (1000 * 10 ** 6) * i;
+        // const quoteResponse = await quote(ASSDAQ_MINT, WETH_MINT, inputAmount)
+        // const expectedEthOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 8); //(weth has 8 decimals on sol)
+        // console.log(`SOL: Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthOut}`);
+        const expectedEthViaPumpSwap = (getAmountOutPumpSwap(inputAmount, poolQuoteAmount, poolBaseAmount)/10**9)/wethPrice;
+        console.log(`SOL(PumpSwap): Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthViaPumpSwap}`);
+
+        const amountIn = expectedEthViaPumpSwap * 10** 18; // ethers.parseEther("0.0005");
+        const to = await ethWallet.getAddress();
         const tokenIn = WETH_CA_ETH;
         const tokenOut = ASSDAQ_CA_ETH;
-        const amountIn = ethers.parseUnits(String(expectedEthOut), 18); // ethers.parseEther("0.0005");
-        const to = await ethWallet.getAddress();
-        // --- Get reserves and compute expected out ---
-        const { reserveIn, reserveOut, pairAddress } = await getPairReserves(tokenIn, tokenOut);
-        const expectedAmountOut = getAmountOut(amountIn, reserveIn, reserveOut);
-        console.log(`ETH: Expected ASSDAQ for ${expectedEthOut} ETH : ${ethers.formatEther(expectedAmountOut)}`);
-        await sleep(10000);
+        const expectedAmountOut = getAmountOut(BigInt(Math.floor(amountIn)), WETH_RESERVES, ASSDAQ_RESERVES);
+        console.log(`ETH: Expected ASSDAQ for ${expectedEthViaPumpSwap} ETH : ${ethers.formatEther(expectedAmountOut)}`);
     }
 
     // Now check sell on ETH buy on SOL:
-    for (let i = 1; i <= 3; ++i) {
+    for (let i = 1; i <= 5000; i*=1000) {
         const tokenIn = ASSDAQ_CA_ETH;
         const tokenOut = WETH_CA_ETH;
         const inAssdaq = 1000 * i;
         const amountIn = ethers.parseUnits(String(inAssdaq), 18); // ethers.parseEther("0.0005");
         const to = await ethWallet.getAddress();
-        // --- Get reserves and compute expected out ---
-        const { reserveIn, reserveOut, pairAddress } = await getPairReserves(tokenIn, tokenOut);
-        const expectedAmountOut = getAmountOut(amountIn, reserveIn, reserveOut);
+        const expectedAmountOut = getAmountOut(amountIn, ASSDAQ_RESERVES, WETH_RESERVES);
         console.log(`ETH: Expected ETH for ${inAssdaq} ASSDAQ : ${ethers.formatEther(expectedAmountOut)}`);
 
         const inputAmount = Number(expectedAmountOut) / 10 ** 18;
-        const quoteResponse = await quote(WETH_MINT, ASSDAQ_MINT, Math.floor(Number(expectedAmountOut) / 10 ** 10)); // remove 10 numbers because WETH on sol has 9 decimals and on eth 18
-        const expectedAssdaqOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 6); //(assdaq has 6 decimals on sol)
-        console.log(`SOL: Expected ASSDAQ for ${inputAmount} WETH: ${expectedAssdaqOut}`);
-
-        await sleep(10000);
+        // const quoteResponse = await quote(WETH_MINT, ASSDAQ_MINT, Math.floor(Number(expectedAmountOut) / 10 ** 10)); // remove 10 numbers because WETH on sol has 9 decimals and on eth 18
+        // const expectedAssdaqOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 6); //(assdaq has 6 decimals on sol)
+        // console.log(`SOL: Expected ASSDAQ for ${inputAmount} WETH: ${expectedAssdaqOut}`);
+        const expectedASSDAQViaPumpSwap = getAmountOutPumpSwap(inputAmount*wethPrice*10**9, poolBaseAmount, poolQuoteAmount)/10**6;
+        console.log(`SOL(PumpSwap): Expected ASSDAQ for ${Number(inputAmount)} WETH: ${expectedASSDAQViaPumpSwap}`);
     }
 }
 
