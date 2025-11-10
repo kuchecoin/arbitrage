@@ -14,6 +14,12 @@ import bs58 from 'bs58';
 
 import { PumpAmmSdk, SwapSolanaState, OnlinePumpAmmSdk, buyBaseInput } from "@pump-fun/pump-swap-sdk";
 
+enum ROUTES {
+    'SELL ON ETH BUY ON SOL',
+    'SELL ON SOL BUY ON ETH',
+    'N/A'
+};
+
 // Initialize SDK
 const pumpAmmSdk = new PumpAmmSdk();
 
@@ -248,14 +254,12 @@ const erc20Abi = [
 ];
 
 const routerAbi = [
-  "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)",
-  "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)",
+  "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
   "function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)"
 ];
 
 // --- Helpers ---
-async function getPairReserves(tokenIn: string, tokenOut: string) {
-  const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645';
+async function getPairReserves(tokenIn: string, tokenOut: string, pairAddress: string) {
 
   const pair = new ethers.Contract(pairAddress, pairAbi, provider);
   const [reserve0, reserve1] = await pair.getReserves();
@@ -288,22 +292,18 @@ function getAmountOutPumpSwap(amountIn: number, baseAmount: number, quoteAmount:
     return numerator / denominator;
 }
 
-async function simpleSwapEthForAssdaq() {
+async function simpleSwapEthForAssdaq(amountInStr: string) {
   const tokenIn = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'; // WETH
   const tokenOut = "0xF4F53989d770458B659f8D094b8E31415F68A4Cf"; // ASSDAQ
-  const amountIn = ethers.parseEther("0.0005"); // ethers.parseUnits("0.0005", 18); //
+  const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645';
+  const amountIn = ethers.parseEther(amountInStr); // ethers.parseUnits("0.0005", 18); //
   const to = await ethWallet.getAddress();
 
   // --- Get reserves and compute expected out ---
-  const { reserveIn, reserveOut, pairAddress } = await getPairReserves(tokenIn, tokenOut);
+  const { reserveIn, reserveOut } = await getPairReserves(tokenIn, tokenOut, pairAddress);
   const expectedAmountOut = getAmountOut(amountIn, reserveIn, reserveOut);
 
-  console.log("Pair:", pairAddress);
-  console.log("Reserves In:", reserveIn.toString());
-  console.log("Reserves Out:", reserveOut.toString());
-  console.log("Expected amount out:", ethers.formatEther(expectedAmountOut));
-
-  // --- Create token + router contracts ---
+    // --- Create token + router contracts ---
   const tokenInContract = new ethers.Contract(tokenIn, erc20Abi, ethWallet);
   const tokenOutContract = new ethers.Contract(tokenOut, erc20Abi, ethWallet);
   const router = new ethers.Contract(UNISWAP_V2_ROUTER, routerAbi, ethWallet);
@@ -311,7 +311,6 @@ async function simpleSwapEthForAssdaq() {
   // --- Approve router if needed ---
   const allowance = await tokenInContract.allowance(to, UNISWAP_V2_ROUTER);
   if (allowance < amountIn) {
-    console.log("Approving...");
     const tx = await tokenInContract.approve(UNISWAP_V2_ROUTER, amountIn);
     await tx.wait();
   }
@@ -320,7 +319,6 @@ async function simpleSwapEthForAssdaq() {
   const balanceBefore = await tokenOutContract.balanceOf(to);
 
   // --- Execute swap ---
-  console.log("Swapping...");
   const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // 10 minutes
   const path = [tokenIn, tokenOut];
   const tx = await router.swapExactETHForTokens(
@@ -339,50 +337,63 @@ async function simpleSwapEthForAssdaq() {
   const balanceAfter = await tokenOutContract.balanceOf(to);
   const received = balanceAfter - balanceBefore;
 
-  console.log("Received:", ethers.formatEther(received), "tokenOut");
+  console.log("Received:", ethers.formatEther(received), tokenOut);
+}
+
+async function simpleSwapAssdaqForEth(amountInStr: string) {
+  const tokenIn = '0xF4F53989d770458B659f8D094b8E31415F68A4Cf'; // ASSDAQ
+  const tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // WETH
+  const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645';
+  const amountIn = ethers.parseEther(amountInStr); // ethers.parseUnits("0.0005", 18); //
+  const to = await ethWallet.getAddress();
+
+  // --- Get reserves and compute expected out ---
+  const { reserveIn, reserveOut } = await getPairReserves(tokenIn, tokenOut, pairAddress);
+  const expectedAmountOut = getAmountOut(amountIn, reserveIn, reserveOut);
+
+  // --- Create token + router contracts ---
+  const tokenInContract = new ethers.Contract(tokenIn, erc20Abi, ethWallet);
+  const tokenOutContract = new ethers.Contract(tokenOut, erc20Abi, ethWallet);
+  const router = new ethers.Contract(UNISWAP_V2_ROUTER, routerAbi, ethWallet);
+
+  // --- Approve router if needed ---
+  const allowance = await tokenInContract.allowance(to, UNISWAP_V2_ROUTER);
+  if (allowance < amountIn) {
+    const tx = await tokenInContract.approve(UNISWAP_V2_ROUTER, amountIn);
+    await tx.wait();
+  }
+
+  // --- Balances before ---
+  const balanceBefore = await tokenOutContract.balanceOf(to);
+
+  // --- Execute swap ---
+  const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // 10 minutes
+  const path = [tokenIn, tokenOut];
+  const tx = await router.swapExactTokensForETH(
+    amountIn,
+    expectedAmountOut * 99n / 100n, // 1% slippage tolerance
+    path,
+    to,
+    deadline,
+  );
+  console.log("Tx hash:", tx.hash);
+
+  const receipt = await tx.wait();
+  console.log("Swap confirmed in block:", receipt.blockNumber);
+
+  // --- Balances after ---
+  const balanceAfter = await tokenOutContract.balanceOf(to);
+  const received = balanceAfter - balanceBefore;
+  console.log("Received:", ethers.formatEther(received), tokenOut);
 }
 
 // simpleSwapEthForAssdaq().catch(console.error);
 
 async function main() {
 
-    // TODO ternary search for quote where arbitrage is positive and max value
-    // ternary because there is 1 local maximum 
-    // first 10 iterations sell on sol buy on eth:
-    // 
-    // implement something similar to :
-    /*
-    async function findBestArbInput(minInput: number, maxInput: number, iterations = 12) {
-  let bestInput = minInput;
-  let bestProfit = -Infinity;
-
-  for (let i = 0; i < iterations; i++) {
-    const left = minInput + (maxInput - minInput) / 3;
-    const right = maxInput - (maxInput - minInput) / 3;
-
-    const profitLeft = await simulateProfit(left);
-    const profitRight = await simulateProfit(right);
-
-    console.log(
-      `Iter ${i}: [${(minInput/1e6).toFixed(0)}, ${(maxInput/1e6).toFixed(0)}] — L=${(left/1e6).toFixed(0)} P=${(profitLeft/1e6).toFixed(2)}, R=${(right/1e6).toFixed(0)} P=${(profitRight/1e6).toFixed(2)}`
-    );
-
-    if (profitLeft < profitRight) {
-      minInput = left;
-      bestInput = right;
-      bestProfit = profitRight;
-    } else {
-      maxInput = right;
-      bestInput = left;
-      bestProfit = profitLeft;
-    }
-  }
-
-  return { bestInput, bestProfit };
-}
-  */
-
-    const { reserveIn, reserveOut } = await getPairReserves(WETH_CA_ETH, ASSDAQ_CA_ETH);
+    const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645'; //assdaq/weth
+    
+    const { reserveIn, reserveOut } = await getPairReserves(WETH_CA_ETH, ASSDAQ_CA_ETH, pairAddress);
     const WETH_RESERVES = reserveIn;
     const ASSDAQ_RESERVES = reserveOut;
 
@@ -392,39 +403,87 @@ async function main() {
     const wethQuote = await quote(WETH_MINT, WSOL_MINT, 10**8); // for 1 eth
     const wethPrice = Number(wethQuote.otherAmountThreshold) / (10**9); // wsol has 9 decimals
     console.log("WETH price in SOL: " + wethPrice);
+    let end = 1000000;
+    let step = 100;
+    let bestV = 0;
+    let bestI = -1;
+    let expectedEth = 0;
+    let bestRoute = ROUTES['N/A'];
     // Check sell on Sol buy on ETH:
-    for (let i = 1; i <= 5000; i+=1000) {
-        const inputAmount = (1000 * 10 ** 6) * i;
+    for (let i = 1; i <= end; i+=step) {
+        const inputAmount = (10 ** 6) * i;
         // const quoteResponse = await quote(ASSDAQ_MINT, WETH_MINT, inputAmount)
         // const expectedEthOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 8); //(weth has 8 decimals on sol)
         // console.log(`SOL: Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthOut}`);
         const expectedEthViaPumpSwap = (getAmountOutPumpSwap(inputAmount, poolQuoteAmount, poolBaseAmount)/10**9)/wethPrice;
-        console.log(`SOL(PumpSwap): Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthViaPumpSwap}`);
+        // console.log(`SOL(PumpSwap): Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthViaPumpSwap}`);
 
         const amountIn = expectedEthViaPumpSwap * 10** 18; // ethers.parseEther("0.0005");
         const to = await ethWallet.getAddress();
         const tokenIn = WETH_CA_ETH;
         const tokenOut = ASSDAQ_CA_ETH;
         const expectedAmountOut = getAmountOut(BigInt(Math.floor(amountIn)), WETH_RESERVES, ASSDAQ_RESERVES);
-        console.log(`ETH: Expected ASSDAQ for ${expectedEthViaPumpSwap} ETH : ${ethers.formatEther(expectedAmountOut)}`);
+        // console.log(`ETH: Expected ASSDAQ for ${expectedEthViaPumpSwap} ETH : ${ethers.formatEther(expectedAmountOut)}`);
+        const assdaqFromEth = Number(ethers.formatEther(expectedAmountOut));
+        if (assdaqFromEth > i && assdaqFromEth - i > bestV) {
+            bestI = i;
+            expectedEth = expectedEthViaPumpSwap;
+            bestV = assdaqFromEth - i;
+            bestRoute = ROUTES['SELL ON SOL BUY ON ETH'];
+            console.log(`IMPROVEMENT: ${bestRoute}, i: ${i}, bestV: ${bestV}`);
+        }
     }
 
     // Now check sell on ETH buy on SOL:
-    for (let i = 1; i <= 5000; i*=1000) {
+    for (let i = 1; i <= end; i+=step) {
         const tokenIn = ASSDAQ_CA_ETH;
         const tokenOut = WETH_CA_ETH;
-        const inAssdaq = 1000 * i;
+        const inAssdaq = i;
         const amountIn = ethers.parseUnits(String(inAssdaq), 18); // ethers.parseEther("0.0005");
         const to = await ethWallet.getAddress();
         const expectedAmountOut = getAmountOut(amountIn, ASSDAQ_RESERVES, WETH_RESERVES);
-        console.log(`ETH: Expected ETH for ${inAssdaq} ASSDAQ : ${ethers.formatEther(expectedAmountOut)}`);
+        // console.log(`ETH: Expected ETH for ${inAssdaq} ASSDAQ : ${ethers.formatEther(expectedAmountOut)}`);
 
         const inputAmount = Number(expectedAmountOut) / 10 ** 18;
         // const quoteResponse = await quote(WETH_MINT, ASSDAQ_MINT, Math.floor(Number(expectedAmountOut) / 10 ** 10)); // remove 10 numbers because WETH on sol has 9 decimals and on eth 18
         // const expectedAssdaqOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 6); //(assdaq has 6 decimals on sol)
         // console.log(`SOL: Expected ASSDAQ for ${inputAmount} WETH: ${expectedAssdaqOut}`);
         const expectedASSDAQViaPumpSwap = getAmountOutPumpSwap(inputAmount*wethPrice*10**9, poolBaseAmount, poolQuoteAmount)/10**6;
-        console.log(`SOL(PumpSwap): Expected ASSDAQ for ${Number(inputAmount)} WETH: ${expectedASSDAQViaPumpSwap}`);
+        // console.log(`SOL(PumpSwap): Expected ASSDAQ for ${Number(inputAmount)} WETH: ${expectedASSDAQViaPumpSwap}`);
+        if (expectedASSDAQViaPumpSwap - i > bestV) {
+            bestV = expectedASSDAQViaPumpSwap - i;
+            bestI = i;
+            expectedEth = Number(ethers.formatEther(expectedAmountOut));
+            bestRoute = ROUTES['SELL ON ETH BUY ON SOL'];
+            console.log(`IMPROVEMENT: ${bestRoute}, i: ${i}, bestV: ${bestV}`);
+        } 
+    }
+    if (bestI === -1) {
+        console.log("NO profit");
+        return;
+    }
+    const profitResp = await quote(ASSDAQ_MINT, 'So11111111111111111111111111111111111111112', Math.floor(bestV * 10 ** 6));
+    const expectedProfit = Number(profitResp.otherAmountThreshold) / 10 ** 9; // sol has 9 decimals
+    console.log(`Expected profit: ${expectedProfit} SOL`);
+    const profitThreshold = 0.01;
+    if (expectedProfit > profitThreshold) {
+        // Execute swaps
+        if (bestRoute === ROUTES['SELL ON ETH BUY ON SOL']) {
+            Promise.all(
+            [
+                quote(WETH_MINT, 
+                    ASSDAQ_MINT, 
+                    Math.floor(expectedEth * 10**8)
+                ).then(swap),
+                simpleSwapAssdaqForEth(String(bestI))
+            ]).then(console.log).catch(console.error);
+        } else if (bestRoute === ROUTES['SELL ON SOL BUY ON ETH']) {
+            Promise.all([
+                quote(ASSDAQ_MINT, WETH_MINT, bestI)
+                .then(swap),
+                simpleSwapEthForAssdaq(expectedEth.toFixed(9).toString())
+            ]).then(console.log).catch(console.error);
+        }
     }
 }
 
