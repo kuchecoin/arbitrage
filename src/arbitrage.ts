@@ -423,7 +423,7 @@ async function getEthBalance(): Promise<number> {
 
 // simpleSwapEthForAssdaq().catch(console.error);
 
-async function tryArbitrage() {
+async function tryArbitrage(profitThresholdInSol: number) {
 
     const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645'; //assdaq/weth
     
@@ -499,8 +499,8 @@ async function tryArbitrage() {
     const profitResp = await quote(ASSDAQ_MINT, 'So11111111111111111111111111111111111111112', Math.floor(bestV * 10 ** 6));
     const expectedProfit = Number(profitResp.otherAmountThreshold) / 10 ** 9; // sol has 9 decimals
     console.log(`Expected profit: ${expectedProfit} SOL`);
-    const profitThreshold = 0.01;
-    if (expectedProfit > profitThreshold) {
+  
+    if (expectedProfit > profitThresholdInSol) {
         // Execute swaps
         if (bestRoute === ROUTES['SELL ON ETH BUY ON SOL']) {
             Promise.all(
@@ -579,7 +579,7 @@ async function main() {
         console.log('Iteration: ' + iteration);
         iteration += 1;
         try {
-            await tryArbitrage();
+            await tryArbitrage(0.01);
         } catch (e) {
             console.error(e);
         }
