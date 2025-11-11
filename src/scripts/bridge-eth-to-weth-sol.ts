@@ -11,7 +11,7 @@ import sui from '@wormhole-foundation/sdk/sui';
 import aptos from '@wormhole-foundation/sdk/aptos';
 import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 
-(async function () {
+export async function bridgeEthToWethSol(ethToTransfer: string) {
 	const wh = await wormhole('Mainnet', [solana, evm, sui, aptos], {
       chains: {
         Ethereum: {
@@ -39,7 +39,7 @@ import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 	console.log(`token ID for ${origChain.chain}: `, tokenId);
 
 	// Define the amount of tokens to transfer
-	const amt = '0.1';
+	const amt = ethToTransfer;
 
 	// Check token balance on source chain
 	console.log('Checking source token balance...');
@@ -86,7 +86,7 @@ import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 	console.log(xfer);
 
 	process.exit(0);
-})();
+}
 
 async function tokenTransfer(
 	wh: Wormhole<"Mainnet">,

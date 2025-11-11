@@ -8,6 +8,7 @@ import {
     TransactionExpiredBlockheightExceededError,
     PublicKey
 } from '@solana/web3.js';
+import { AccountInfo, Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { createJupiterApiClient, QuoteResponse, SwapInfoToJSON } from '@jup-ag/api';
 import * as dotenv from 'dotenv';
 import bs58 from 'bs58';
@@ -230,6 +231,11 @@ async function swap(quoteResponse: QuoteResponse) {
 
 import { BigNumberish, ethers } from "ethers";
 import { NttBindings } from '@wormhole-foundation/sdk-evm-ntt/dist/cjs/bindings';
+import { bridgeAssdaqEthToSol } from './bridge-ASSDAQ-eth-to-sol';
+import { bridgeAssdaqSolToEth } from './bridge-ASSDAQ-sol-to-eth';
+import { bridgeEthToWethSol } from './scripts/bridge-eth-to-weth-sol';
+import { bridgeWethSolToEth } from './scripts/bridge-weth-sol-to-eth';
+import { getSigner } from './utils/helpers';
 dotenv.config();
 
 
@@ -387,9 +393,37 @@ async function simpleSwapAssdaqForEth(amountInStr: string) {
   console.log("Received:", ethers.formatEther(received), tokenOut);
 }
 
+async function getAssdaqAndEthBalanceEth(): Promise<[number, number]> {
+  const to = await ethWallet.getAddress();
+  const assdaqContract = new ethers.Contract(ASSDAQ_CA_ETH, erc20Abi, provider);
+
+  const balanceEth = await provider.getBalance(to);
+  
+  const uiAmountEth = Number(ethers.formatEther(balanceEth));
+  console.log("ETH Balance:", uiAmountEth);
+  
+  const balance = await assdaqContract.balanceOf(to);
+  const decimals = await assdaqContract.decimals();
+  
+  const uiAmount = Number(ethers.formatUnits(balance, decimals));
+  console.log("ASSDAQ on eth Balance:", uiAmount);
+  
+  return [uiAmount, uiAmountEth];
+}
+
+async function getEthBalance(): Promise<number> {
+  const to = await ethWallet.getAddress();
+  const balance = await provider.getBalance(to);
+  
+  const uiAmount = Number(ethers.formatEther(balance));
+  console.log("ETH Balance:", uiAmount);
+  
+  return uiAmount;
+}
+
 // simpleSwapEthForAssdaq().catch(console.error);
 
-async function main() {
+async function tryArbitrage() {
 
     const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645'; //assdaq/weth
     
@@ -478,7 +512,7 @@ async function main() {
                 simpleSwapAssdaqForEth(String(bestI))
             ]).then(console.log).catch(console.error);
         } else if (bestRoute === ROUTES['SELL ON SOL BUY ON ETH']) {
-            const quoteAssToSol = await quote(ASSDAQ_MINT, WSOL_MINT, bestI * 10 ** 6);
+            const quoteAssToSol = await quote(ASSDAQ_MINT, WSOL_MINT, bestI * 10 ** 6)
             swap(quoteAssToSol).then(console.log);
             const quoteSolToWeth = await quote(WSOL_MINT, WETH_MINT, Number(quoteAssToSol.otherAmountThreshold));
             swap(quoteSolToWeth).then(console.log);
@@ -488,6 +522,92 @@ async function main() {
             //     .then(swap),
             //     simpleSwapEthForAssdaq(expectedEth.toFixed(9).toString())
             // ]).then(console.log).catch(console.error);
+        }
+    }
+}
+
+async function getSPLBalance(tokenMint: string) {
+    // This finds or creates the associated token account
+    const token = new Token(connection, new PublicKey(tokenMint), TOKEN_PROGRAM_ID, {
+        publicKey: wallet.publicKey,
+        secretKey: undefined as any,
+    });
+
+    // Get (or derive) the associated token account
+    const tokenAccount = await token.getOrCreateAssociatedAccountInfo(wallet.publicKey);
+
+    // Raw integer amount
+    // console.log("ASSDAQ on sol amount:", tokenAccount.amount.toString());
+
+    // Decimals
+    const mintInfo = await token.getMintInfo();
+    const decimals = mintInfo.decimals;
+
+    // Converted
+    const uiAmount = Number(tokenAccount.amount) / 10 ** decimals;
+
+    // console.log("ASSDAQ on sol Balance:", uiAmount);
+
+    return uiAmount;
+}
+
+async function getSolBalance(): Promise<number> {
+  // returns SOL (not lamports)
+  const lamports = await connection.getBalance(wallet.publicKey, 'confirmed');
+  const sol = lamports / 1e9;
+  return sol;
+}
+
+
+let iteration = 0;
+async function main() {
+    const initialAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
+    const initialWethOnSol = await getSPLBalance(WETH_MINT);
+    const [initialAssdaqOnEth, initialEthOnEth] = await getAssdaqAndEthBalanceEth();
+    let curSolBalance = await getSolBalance();
+    console.log(`Eth wallet: ${ethWallet.address}\n`+
+        `Initial ASSDAQ on sol: ${initialAssdaqOnSol}\n`+
+        `Initial WETH on sol: ${initialWethOnSol}\n`+
+        `Initial ASSDAQ on eth: ${initialAssdaqOnEth}\n`+
+        `Initial ETH on eth: ${initialEthOnEth}\n`+
+        `Initial Sol on sol: ${curSolBalance}`);
+    // await bridgeAssdaqEthToSol(1).catch(console.error);
+    // await bridgeAssdaqSolToEth(1).catch(console.error);
+    // await bridgeEthToWethSol('0.00001').catch(console.error);
+    // await bridgeWethSolToEth('0.00001').catch(console.error);
+    while (true) {
+        console.log('Iteration: ' + iteration);
+        iteration += 1;
+        try {
+            await tryArbitrage();
+        } catch (e) {
+            console.error(e);
+        }
+        console.log('Sleeping for 120 seconds...');
+        await sleep(120);
+        curSolBalance = await getSolBalance();
+        const currentAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
+        const currentWethOnSol = await getSPLBalance(WETH_MINT);
+        const [currentAssdaqOnEth, currentEthOnEth] = await getAssdaqAndEthBalanceEth();
+        console.log(
+            `Current ASSDAQ on sol: ${currentAssdaqOnSol}\n`+
+            `Current WETH on sol: ${currentWethOnSol}\n`+
+            `Current ASSDAQ on eth: ${currentAssdaqOnEth}\n`+
+            `Current ETH on eth: ${currentEthOnEth}\n`+
+            `Current Sol on sol: ${curSolBalance}`);
+        if (currentAssdaqOnEth < .5 * initialAssdaqOnEth) {
+            console.log('Current ASSDAQ on ETH is less than 50% of initial. Initiate bridge...');
+            await bridgeAssdaqSolToEth(Math.floor(.5 * currentAssdaqOnSol)).catch(console.error);
+        } else if (currentAssdaqOnSol < .5 * initialAssdaqOnSol) {
+            console.log('Current ASSDAQ on Sol is less than 50% of initial. Initiate bridge...');
+            await bridgeAssdaqEthToSol(Math.floor(.5 * currentAssdaqOnEth)).catch(console.error);
+        }
+        if (currentEthOnEth < .5 * initialEthOnEth) {
+            console.log('Current ETH on ETH is less than 50% of initial. Initiate bridge...');
+            await bridgeWethSolToEth(String(.5 * Number(currentWethOnSol))).catch(console.error);
+        } else if (currentWethOnSol < .5 * initialWethOnSol) {
+                        console.log('Current WETH on Sol is less than 50% of initial. Initiate bridge...');
+            await bridgeEthToWethSol(String(.5 * Number(currentEthOnEth))).catch(console.error);
         }
     }
 }

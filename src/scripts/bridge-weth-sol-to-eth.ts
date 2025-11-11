@@ -11,10 +11,7 @@ import sui from '@wormhole-foundation/sdk/sui';
 import aptos from '@wormhole-foundation/sdk/aptos';
 import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 
-// Define the amount of tokens to transfer
-const amt = '0.00083662';
-
-(async function () {
+export async function bridgeWethSolToEth(ethToBridge: string) {
 	const wh = await wormhole('Mainnet', [solana, evm, sui, aptos], {
       chains: {
         Ethereum: {
@@ -61,10 +58,10 @@ const amt = '0.00083662';
 	const nativeGas = protocol === 'AutomaticTokenBridge' ? '0.01' : undefined;
 
 	// Check if source has sufficient token balance
-	const transferAmount = amount.units(amount.parse(amt, decimals));
+	const transferAmount = amount.units(amount.parse(ethToBridge, decimals));
 	if (sourceTokenBalance < transferAmount) {
 		throw new Error(
-			`Insufficient token balance. Required: ${amt}, Available: ${amount.parse(
+			`Insufficient token balance. Required: ${ethToBridge}, Available: ${amount.parse(
 				sourceTokenBalance.toString(),
 				decimals
 			)}`
@@ -86,7 +83,7 @@ const amt = '0.00083662';
 	console.log(xfer);
 
 	process.exit(0);
-})();
+}
 
 async function tokenTransfer(
 	wh: Wormhole<"Mainnet">,
