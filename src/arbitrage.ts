@@ -464,7 +464,7 @@ async function tryArbitrage(profitThresholdInSol: number) {
             expectedEth = expectedEthViaPumpSwap;
             bestV = assdaqFromEth - i;
             bestRoute = ROUTES['SELL ON SOL BUY ON ETH'];
-            console.log(`IMPROVEMENT: ${bestRoute}, i: ${i}, bestV: ${bestV}`);
+            // console.log(`IMPROVEMENT: ${bestRoute}, i: ${i}, bestV: ${bestV}`);
         }
     }
 
