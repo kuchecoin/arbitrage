@@ -489,12 +489,13 @@ async function tryArbitrage(profitThresholdInSol: number) {
             bestI = i;
             expectedEth = Number(ethers.formatEther(expectedAmountOut));
             bestRoute = ROUTES['SELL ON ETH BUY ON SOL'];
-            console.log(`IMPROVEMENT: ${bestRoute}, i: ${i}, bestV: ${bestV}`);
         } 
     }
     if (bestI === -1) {
         console.log("NO profit");
         return;
+    } else {
+        console.log(`IMPROVEMENT: ${bestRoute}, bestI: ${bestI}, bestV: ${bestV}`);
     }
     const profitResp = await quote(ASSDAQ_MINT, 'So11111111111111111111111111111111111111112', Math.floor(bestV * 10 ** 6));
     const expectedProfit = Number(profitResp.otherAmountThreshold) / 10 ** 9; // sol has 9 decimals
@@ -523,6 +524,8 @@ async function tryArbitrage(profitThresholdInSol: number) {
             //     simpleSwapEthForAssdaq(expectedEth.toFixed(9).toString())
             // ]).then(console.log).catch(console.error);
         }
+    } else {
+        console.log('No swap because expected profit is less than threshold in sol: ' + profitThresholdInSol);
     }
 }
 
@@ -573,10 +576,10 @@ async function main() {
         `Initial Sol on sol: ${curSolBalance}`);
     // await bridgeAssdaqEthToSol(1).catch(console.error);
     // await bridgeAssdaqSolToEth(1).catch(console.error);
-    // await bridgeEthToWethSol('0.00001').catch(console.error);
+    // await bridgeEthToWethSol('0.0001').catch(console.error);
     // await bridgeWethSolToEth('0.00001').catch(console.error);
     while (true) {
-        console.log('Iteration: ' + iteration);
+        console.log('---------------------------------------------------------------------\n'+'Iteration: ' + iteration);
         iteration += 1;
         try {
             await tryArbitrage(0.01);
@@ -584,7 +587,7 @@ async function main() {
             console.error(e);
         }
         console.log('Sleeping for 120 seconds...');
-        await sleep(120);
+        await sleep(120000);
         curSolBalance = await getSolBalance();
         const currentAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
         const currentWethOnSol = await getSPLBalance(WETH_MINT);
@@ -595,19 +598,21 @@ async function main() {
             `Current ASSDAQ on eth: ${currentAssdaqOnEth}\n`+
             `Current ETH on eth: ${currentEthOnEth}\n`+
             `Current Sol on sol: ${curSolBalance}`);
-        if (currentAssdaqOnEth < .5 * initialAssdaqOnEth) {
-            console.log('Current ASSDAQ on ETH is less than 50% of initial. Initiate bridge...');
-            await bridgeAssdaqSolToEth(Math.floor(.5 * currentAssdaqOnSol)).catch(console.error);
-        } else if (currentAssdaqOnSol < .5 * initialAssdaqOnSol) {
-            console.log('Current ASSDAQ on Sol is less than 50% of initial. Initiate bridge...');
-            await bridgeAssdaqEthToSol(Math.floor(.5 * currentAssdaqOnEth)).catch(console.error);
+        const totalEth = currentWethOnSol + currentEthOnEth;
+        const totalAssdaq = currentAssdaqOnSol + currentAssdaqOnEth;
+        if (currentAssdaqOnEth < .25 * totalAssdaq) {
+            console.log('Current ASSDAQ on ETH is less than 25% of total. Initiate bridge...');
+            await bridgeAssdaqSolToEth(Math.floor(.5*totalAssdaq - currentAssdaqOnEth)).catch(console.error);
+        } else if (currentAssdaqOnSol < .25 * totalAssdaq) {
+            console.log('Current ASSDAQ on Sol is less than 25% of total. Initiate bridge...');
+            await bridgeAssdaqEthToSol(Math.floor(.5 *totalAssdaq - currentAssdaqOnSol)).catch(console.error);
         }
-        if (currentEthOnEth < .5 * initialEthOnEth) {
-            console.log('Current ETH on ETH is less than 50% of initial. Initiate bridge...');
-            await bridgeWethSolToEth(String(.5 * Number(currentWethOnSol))).catch(console.error);
-        } else if (currentWethOnSol < .5 * initialWethOnSol) {
-                        console.log('Current WETH on Sol is less than 50% of initial. Initiate bridge...');
-            await bridgeEthToWethSol(String(.5 * Number(currentEthOnEth))).catch(console.error);
+        if (currentEthOnEth < .25 * totalEth) {
+            console.log('Current ETH on ETH is less than 25% of total. Initiate bridge...');
+            await bridgeWethSolToEth(String(.5 * Number(totalEth) - currentEthOnEth)).catch(console.error);
+        } else if (currentWethOnSol < .25 * totalEth) {
+            console.log('Current WETH on Sol is less than 25% of total. Initiate bridge...');
+            await bridgeEthToWethSol(String(.5 * Number(totalEth) - currentWethOnSol)).catch(console.error);
         }
     }
 }
