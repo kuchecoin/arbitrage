@@ -455,7 +455,7 @@ async function tryArbitrage(
     const wethQuote = await quote(WETH_MINT, WSOL_MINT, 10**8); // for 1 eth
     const wethPrice = Number(wethQuote.otherAmountThreshold) / (10**9); // wsol has 9 decimals
     console.log("WETH price in SOL: " + wethPrice);
-    let end = Math.floor(.8 * Math.min(currentAssdaqOnEth, currentAssdaqOnEth));
+    let end = Math.floor(.8 * Math.min(currentAssdaqOnEth, currentAssdaqOnSol));
     let step = 10;
     let bestV = 0;
     let bestI = -1;
