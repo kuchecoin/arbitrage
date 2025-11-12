@@ -15,6 +15,21 @@ import bs58 from 'bs58';
 
 import { PumpAmmSdk, SwapSolanaState, OnlinePumpAmmSdk, buyBaseInput } from "@pump-fun/pump-swap-sdk";
 
+const originalLog = console.log;
+const originalError = console.error;
+
+// Override console.log
+console.log = (...args: any[]) => {
+    const timestamp = new Date().toISOString();
+    originalLog(`[${timestamp}]`, ...args);
+};
+
+// Override console.error
+console.error = (...args: any[]) => {
+    const timestamp = new Date().toISOString();
+    originalError(`[${timestamp}]`, ...args);
+};
+
 enum ROUTES {
     'SELL ON ETH BUY ON SOL',
     'SELL ON SOL BUY ON ETH',
@@ -423,7 +438,10 @@ async function getEthBalance(): Promise<number> {
 
 // simpleSwapEthForAssdaq().catch(console.error);
 
-async function tryArbitrage(profitThresholdInSol: number) {
+async function tryArbitrage(
+        profitThresholdInSol: number, 
+        currentAssdaqOnSol: number, 
+        currentAssdaqOnEth: number) {
 
     const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645'; //assdaq/weth
     
@@ -437,8 +455,8 @@ async function tryArbitrage(profitThresholdInSol: number) {
     const wethQuote = await quote(WETH_MINT, WSOL_MINT, 10**8); // for 1 eth
     const wethPrice = Number(wethQuote.otherAmountThreshold) / (10**9); // wsol has 9 decimals
     console.log("WETH price in SOL: " + wethPrice);
-    let end = 1000000;
-    let step = 100;
+    let end = Math.floor(.8 * Math.min(currentAssdaqOnEth, currentAssdaqOnEth));
+    let step = 10;
     let bestV = 0;
     let bestI = -1;
     let expectedEth = 0;
@@ -568,6 +586,11 @@ async function main() {
     const initialWethOnSol = await getSPLBalance(WETH_MINT);
     const [initialAssdaqOnEth, initialEthOnEth] = await getAssdaqAndEthBalanceEth();
     let curSolBalance = await getSolBalance();
+
+    let currentAssdaqOnSol = initialAssdaqOnSol;
+    let currentWethOnSol = initialWethOnSol;
+    let [currentAssdaqOnEth, currentEthOnEth] = [initialAssdaqOnEth, initialEthOnEth];
+
     console.log(`Eth wallet: ${ethWallet.address}\n`+
         `Initial ASSDAQ on sol: ${initialAssdaqOnSol}\n`+
         `Initial WETH on sol: ${initialWethOnSol}\n`+
@@ -582,16 +605,16 @@ async function main() {
         console.log('---------------------------------------------------------------------\n'+'Iteration: ' + iteration);
         iteration += 1;
         try {
-            await tryArbitrage(0.01);
+            await tryArbitrage(0.01, currentAssdaqOnSol, currentAssdaqOnEth);
         } catch (e) {
             console.error(e);
         }
         console.log('Sleeping for 120 seconds...');
         await sleep(120000);
         curSolBalance = await getSolBalance();
-        const currentAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
-        const currentWethOnSol = await getSPLBalance(WETH_MINT);
-        const [currentAssdaqOnEth, currentEthOnEth] = await getAssdaqAndEthBalanceEth();
+        currentAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
+        currentWethOnSol = await getSPLBalance(WETH_MINT);
+        [currentAssdaqOnEth, currentEthOnEth] = await getAssdaqAndEthBalanceEth();
         console.log(
             `Current ASSDAQ on sol: ${currentAssdaqOnSol}\n`+
             `Current WETH on sol: ${currentWethOnSol}\n`+
