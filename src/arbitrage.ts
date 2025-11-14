@@ -610,7 +610,7 @@ async function main() {
         } catch (e) {
             console.error(e);
         }
-        const sleepSeconds = 120;
+        const sleepSeconds = 30;
         console.log(`Sleeping for ${sleepSeconds} seconds...`);
         await sleep(sleepSeconds * 1000);
         curSolBalance = await getSolBalance();
