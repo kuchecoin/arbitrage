@@ -520,6 +520,7 @@ async function tryArbitrage(
     console.log(`Expected profit: ${expectedProfit} SOL`);
   
     if (expectedProfit > profitThresholdInSol) {
+        console.log(`Executing swap with expected profit: ${expectedProfit}`);
         // Execute swaps
         if (bestRoute === ROUTES['SELL ON ETH BUY ON SOL']) {
             Promise.all(
@@ -609,8 +610,9 @@ async function main() {
         } catch (e) {
             console.error(e);
         }
-        console.log('Sleeping for 120 seconds...');
-        await sleep(120000);
+        const sleepSeconds = 120;
+        console.log(`Sleeping for ${sleepSeconds} seconds...`);
+        await sleep(sleepSeconds * 1000);
         curSolBalance = await getSolBalance();
         currentAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
         currentWethOnSol = await getSPLBalance(WETH_MINT);
