@@ -8,12 +8,12 @@ import {
     TransactionExpiredBlockheightExceededError,
     PublicKey
 } from '@solana/web3.js';
-import { AccountInfo, Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { createJupiterApiClient, QuoteResponse, SwapInfoToJSON } from '@jup-ag/api';
+import { Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createJupiterApiClient, QuoteResponse } from '@jup-ag/api';
 import * as dotenv from 'dotenv';
 import bs58 from 'bs58';
 
-import { PumpAmmSdk, SwapSolanaState, OnlinePumpAmmSdk, buyBaseInput } from "@pump-fun/pump-swap-sdk";
+import { PumpAmmSdk, OnlinePumpAmmSdk } from "@pump-fun/pump-swap-sdk";
 
 const originalLog = console.log;
 const originalError = console.error;
@@ -415,13 +415,10 @@ async function getAssdaqAndEthBalanceEth(): Promise<[number, number]> {
   const balanceEth = await provider.getBalance(to);
   
   const uiAmountEth = Number(ethers.formatEther(balanceEth));
-  console.log("ETH Balance:", uiAmountEth);
-  
   const balance = await assdaqContract.balanceOf(to);
   const decimals = await assdaqContract.decimals();
   
   const uiAmount = Number(ethers.formatUnits(balance, decimals));
-  console.log("ASSDAQ on eth Balance:", uiAmount);
   
   return [uiAmount, uiAmountEth];
 }
@@ -431,7 +428,6 @@ async function getEthBalance(): Promise<number> {
   const balance = await provider.getBalance(to);
   
   const uiAmount = Number(ethers.formatEther(balance));
-  console.log("ETH Balance:", uiAmount);
   
   return uiAmount;
 }
@@ -628,7 +624,7 @@ async function main() {
         currentWethOnSol = await getSPLBalance(WETH_MINT);
         [currentAssdaqOnEth, currentEthOnEth] = await getAssdaqAndEthBalanceEth();
         console.log(
-            `Current ASSDAQ on sol: ${currentAssdaqOnSol}\n`+
+            `\nCurrent ASSDAQ on sol: ${currentAssdaqOnSol}\n`+
             `Current WETH on sol: ${currentWethOnSol}\n`+
             `Current ASSDAQ on eth: ${currentAssdaqOnEth}\n`+
             `Current ETH on eth: ${currentEthOnEth}\n`+
