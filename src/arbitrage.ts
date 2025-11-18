@@ -441,7 +441,9 @@ async function getEthBalance(): Promise<number> {
 async function tryArbitrage(
         profitThresholdInSol: number, 
         currentAssdaqOnSol: number, 
-        currentAssdaqOnEth: number) {
+        currentAssdaqOnEth: number,
+        currentWethOnSol: number, 
+        currentEthOnEth: number) {
 
     const pairAddress = '0x73F09132c1eA8BCfceBDc337361830E56dcb6645'; //assdaq/weth
     
@@ -468,6 +470,10 @@ async function tryArbitrage(
         // const expectedEthOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 8); //(weth has 8 decimals on sol)
         // console.log(`SOL: Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthOut}`);
         const expectedEthViaPumpSwap = (getAmountOutPumpSwap(inputAmount, poolQuoteAmount, poolBaseAmount)/10**9)/wethPrice;
+        if (expectedEthViaPumpSwap > 0.9 * currentEthOnEth) {
+            console.log('expected eth via pumpswap is more than 0.9 * ETH on eth so breaking check for sell on sol buy on eth');
+            break;
+        }
         // console.log(`SOL(PumpSwap): Expected ETH for ${Number(inputAmount / (10 ** 6))} ASSDAQ: ${expectedEthViaPumpSwap}`);
 
         const amountIn = expectedEthViaPumpSwap * 10** 18; // ethers.parseEther("0.0005");
@@ -497,6 +503,10 @@ async function tryArbitrage(
         // console.log(`ETH: Expected ETH for ${inAssdaq} ASSDAQ : ${ethers.formatEther(expectedAmountOut)}`);
 
         const inputAmount = Number(expectedAmountOut) / 10 ** 18;
+        if (inputAmount > 0.9 * currentWethOnSol) {
+            console.log('expected eth is more than 0.9 * wETH on sol - breaking check for sell on eth buy on sol');
+            break;
+        }
         // const quoteResponse = await quote(WETH_MINT, ASSDAQ_MINT, Math.floor(Number(expectedAmountOut) / 10 ** 10)); // remove 10 numbers because WETH on sol has 9 decimals and on eth 18
         // const expectedAssdaqOut = Number(quoteResponse.otherAmountThreshold) / (10 ** 6); //(assdaq has 6 decimals on sol)
         // console.log(`SOL: Expected ASSDAQ for ${inputAmount} WETH: ${expectedAssdaqOut}`);
@@ -606,7 +616,7 @@ async function main() {
         console.log('---------------------------------------------------------------------\n'+'Iteration: ' + iteration);
         iteration += 1;
         try {
-            await tryArbitrage(0.01, currentAssdaqOnSol, currentAssdaqOnEth);
+            await tryArbitrage(0.01, currentAssdaqOnSol, currentAssdaqOnEth, currentWethOnSol, currentEthOnEth);
         } catch (e) {
             console.error(e);
         }
