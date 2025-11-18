@@ -11,7 +11,8 @@
     "bridge-eth-to-weth-sol": "ts-node-dev src/scripts/bridge-eth-to-weth-sol.ts",
     "bridge-weth-sol-to-eth": "ts-node-dev src/scripts/bridge-weth-sol-to-eth.ts",
     "simple-trade-from-uniswap-eth-to-assdaq": "ts-node-dev src/simple-trade-from-uniswap-v2-assdaq.ts",
-    "arbitrage": "ts-node-dev src/arbitrage.ts"
+    "arbitrage": "ts-node-dev src/arbitrage.ts",
+    "generate-wallets" : "ts-node-dev src/generate-wallets.ts"
   },
   "keywords": [
     "solana",
