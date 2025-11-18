@@ -11,8 +11,10 @@ import sui from '@wormhole-foundation/sdk/sui';
 import aptos from '@wormhole-foundation/sdk/aptos';
 import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 
-export async function bridgeEthToWethSol(ethToTransfer: string) {
-	const wh = await wormhole('Mainnet', [solana, evm, sui, aptos], {
+export async function bridgeEthToWethSol(ethToTransfer: string
+	// , wh: Wormhole<"Mainnet">
+) {
+	const wh = await wormhole('Mainnet', [solana, evm], {
       chains: {
         Ethereum: {
           "rpc": process.env.ETH_RPC_ENDPOINT,
@@ -212,3 +214,6 @@ async function tokenTransfer(
 	console.log(`Completed Transfer: `, destTxids);
 	console.log('Transfer completed successfully');
 }
+
+
+// bridgeEthToWethSol('0.001').then(console.log);

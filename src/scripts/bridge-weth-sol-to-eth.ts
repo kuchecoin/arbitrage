@@ -11,17 +11,17 @@ import sui from '@wormhole-foundation/sdk/sui';
 import aptos from '@wormhole-foundation/sdk/aptos';
 import { SignerStuff, getSigner, getTokenDecimals } from '../helpers/helpers';
 
-export async function bridgeWethSolToEth(ethToBridge: string) {
-	const wh = await wormhole('Mainnet', [solana, evm, sui, aptos], {
-      chains: {
-        Ethereum: {
-          "rpc": process.env.ETH_RPC_ENDPOINT,
-        },
-        Solana: {
-          "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
-        }
-      }
-	});
+export async function bridgeWethSolToEth(ethToBridge: string, wh: Wormhole<"Mainnet">) {
+	// const wh = await wormhole('Mainnet', [solana, evm, sui, aptos], {
+    //   chains: {
+    //     Ethereum: {
+    //       "rpc": process.env.ETH_RPC_ENDPOINT,
+    //     },
+    //     Solana: {
+    //       "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
+    //     }
+    //   }
+	// });
 
 	// Grab chain Contexts -- these hold a reference to a cached rpc client
 	const origChain = wh.getChain('Solana');

@@ -20,22 +20,22 @@ import { dot } from "node:test/reporters";
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-export async function bridgeAssdaqSolToEth(numberOfAssdaqTokensToBridge: number) {
+export async function bridgeAssdaqSolToEth(numberOfAssdaqTokensToBridge: number, wh: Wormhole<"Mainnet">) {
   const network = "Mainnet"; 
-  const wh = new Wormhole(network, [solana.Platform, evm.Platform], {
-    // optional way to use private RPCs, especially recommended for mainnet 
-      "chains": {
-        "Ethereum": {
-          "rpc": process.env.ETH_RPC_ENDPOINT,
-        },
-        "Base": {
-          "rpc": process.env.BASE_RPC_ENDPOINT,
-        },
-        "Solana": {
-          "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
-        }
-      }
-  });
+  // const wh = new Wormhole(network, [solana.Platform, evm.Platform], {
+  //   // optional way to use private RPCs, especially recommended for mainnet 
+  //     "chains": {
+  //       "Ethereum": {
+  //         "rpc": process.env.ETH_RPC_ENDPOINT,
+  //       },
+  //       "Base": {
+  //         "rpc": process.env.BASE_RPC_ENDPOINT,
+  //       },
+  //       "Solana": {
+  //         "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
+  //       }
+  //     }
+  // });
   const src = wh.getChain("Solana");
   const dst = wh.getChain("Ethereum");
   const srcSigner = await getSigner(src);
