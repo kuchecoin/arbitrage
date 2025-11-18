@@ -550,14 +550,14 @@ async function tryArbitrage(
                 quote(WETH_MINT, 
                     ASSDAQ_MINT, 
                     Math.floor(expectedEth * 10**8)
-                ).then(swap),
+                ).then(swap).catch(console.error),
                 simpleSwapAssdaqForEth(String(bestI))
             ]).then(console.log).catch(console.error);
         } else if (bestRoute === ROUTES['SELL ON SOL BUY ON ETH']) {
             const quoteAssToSol = await quote(ASSDAQ_MINT, WSOL_MINT, bestI * 10 ** 6)
-            swap(quoteAssToSol).then(console.log);
+            swap(quoteAssToSol).then(console.log).catch(console.error);
             const quoteSolToWeth = await quote(WSOL_MINT, WETH_MINT, Number(quoteAssToSol.otherAmountThreshold));
-            swap(quoteSolToWeth).then(console.log);
+            swap(quoteSolToWeth).then(console.log).catch(console.error);
             await simpleSwapEthForAssdaq(expectedEth.toFixed(9).toString())
             // Promise.all([
             //     quote(ASSDAQ_MINT, WSOL_MINT, bestI)
