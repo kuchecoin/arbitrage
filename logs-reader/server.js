@@ -110,13 +110,20 @@ app.get('/view/:filename', checkAuth, (req, res) => {
     fs.readFile(filepath, 'utf8', (err, data) => {
         if (err) return res.send(`<html>${htmlHead}<body><h2>Error</h2><p>File not found or unreadable.</p><a href="/">Back</a></body></html>`);
 
+        // --- REVERSE LOGIC ADDED HERE ---
+        const reversedContent = data
+            .split('\n') // Split the content into an array of lines
+            .reverse()   // Reverse the array (newest lines are now first)
+            .join('\n'); // Join the lines back together
+        // -------------------------------
+
         res.send(`
             <html>
             ${htmlHead}
             <body>
                 <a href="/" class="back-btn">⬅ Back to List</a>
                 <h2>📄 ${filename}</h2>
-                <div class="content">${data.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+                <div class="content">${reversedContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
             </body>
             </html>
         `);
