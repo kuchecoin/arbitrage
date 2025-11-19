@@ -36,6 +36,7 @@ export const CONFIG = {
     SOL_TO_LEAVE: 1,
     PERCENT_FOR_REBALANCE: .25,
     TARGET_PERCENT: .5,
+    PUMP_FUN_ASSDAQ_CURVE_ADDR: '8r2FgpMpJiLiHBV6tzM21TqoHgWny4vkvuaN6Rv2So2H',
 };
 
 export const ABIS = {

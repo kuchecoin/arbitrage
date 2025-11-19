@@ -31,7 +31,7 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
         solService.getSPLBalance(CONFIG.TOKENS.SOL.WETH_MINT),
         ethService.getEthBalance(),
         ethService.getPairReserves(CONFIG.TOKENS.ETH.WETH_CA),
-        solService.getPumpCurveState(CONFIG.TOKENS.SOL.ASSDAQ_MINT), // You might need to pass curve address
+        solService.getPumpCurveState(CONFIG.PUMP_FUN_ASSDAQ_CURVE_ADDR),
         solService.getQuote(CONFIG.TOKENS.SOL.WETH_MINT, CONFIG.TOKENS.SOL.WSOL_MINT, 10**8), // 1 WETH price
         solService.getSolBalance()
     ]);
