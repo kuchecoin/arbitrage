@@ -1,233 +1,269 @@
-import {
-    Connection,
-    Keypair,
-    VersionedTransaction,
-    TransactionSignature,
-    Finality,
-    TransactionConfirmationStatus,
-    TransactionExpiredBlockheightExceededError
-} from '@solana/web3.js';
-import { createJupiterApiClient, QuoteResponse } from '@jup-ag/api';
-import * as dotenv from 'dotenv';
-import bs58 from 'bs58';
+import { CONFIG } from './config';
+import { EthereumService } from './services/ethereum';
+import { SolanaService } from './services/solana';
+import { setupLogger, sleep } from './utils/helpers';
+import { Wormhole, wormhole } from '@wormhole-foundation/sdk';
+import evm from '@wormhole-foundation/sdk/evm';
+import solana from '@wormhole-foundation/sdk/solana';
+import { ArbitrageCalculator, PoolState, RouteDirection } from './services/calculator';
 
+// Import bridge scripts (assuming these export functions)
+import { bridgeAssdaqEthToSol } from './utils/bridge-ASSDAQ-eth-to-sol';
+import { bridgeAssdaqSolToEth } from './utils/bridge-ASSDAQ-sol-to-eth';
+import { bridgeEthToWethSol } from './utils/scripts/bridge-eth-to-weth-sol';
+import { bridgeWethSolToEth } from './utils/scripts/bridge-weth-sol-to-eth';
 
-/**
- * Polls the cluster for the transaction status using getSignatureStatuses.
- * This is the alternative to confirmTransaction() when no WSS endpoint is available.
- * * @param connection The Solana Connection object (HTTP-only is fine).
- * @param signature The transaction signature (txid) to check.
- * @param lastValidBlockHeight The block height at which the transaction is no longer valid.
- * @param commitment The desired commitment level ('confirmed' or 'finalized').
- * @param timeoutMs The maximum time to poll before giving up (defaults to 30000ms/30s).
- * @returns A promise that resolves when the transaction is confirmed or rejects on failure/timeout.
- */
-export async function pollTransactionConfirmation(
-    connection: Connection,
-    signature: TransactionSignature,
-    lastValidBlockHeight: number,
-    commitment: Finality = 'confirmed',
-    timeoutMs: number = 30000,
-): Promise<void> {
-    const startTime = Date.now();
-    const pollInterval = 1000; // Check status every 1 second
-    
-    // We also need to monitor the network's current block height to check for blockhash expiry
-    const blockheightPollInterval = 2000; 
-    let lastBlockHeightCheck = 0;
+setupLogger();
 
-    // Use an error that's already defined in @solana/web3.js for consistency
-    const timeoutError = new Error(`Transaction confirmation timed out after ${timeoutMs}ms.`);
+const ethService = new EthereumService();
+const solService = new SolanaService();
+const calculator = new ArbitrageCalculator();
 
-    while (Date.now() - startTime < timeoutMs) {
-        try {
-            // 1. Check current status
-            const statusResponse = await connection.getSignatureStatuses([signature], {
-                searchTransactionHistory: true, // Recommended to find older transactions
-            });
+async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">) {
+    console.info(`Iteration: ${iteration}`)
+    // 1. Fetch Data (Async calls)
+    const [
+        assdaqSol, assdaqEth, wethSol, ethEth,
+        uniswapReserves, pumpCurve, wethQuote, solBalance
+    ] = await Promise.all([
+        solService.getSPLBalance(CONFIG.TOKENS.SOL.ASSDAQ_MINT),
+        ethService.getTokenBalance(CONFIG.TOKENS.ETH.ASSDAQ_CA),
+        solService.getSPLBalance(CONFIG.TOKENS.SOL.WETH_MINT),
+        ethService.getEthBalance(),
+        ethService.getPairReserves(CONFIG.TOKENS.ETH.WETH_CA),
+        solService.getPumpCurveState(CONFIG.TOKENS.SOL.ASSDAQ_MINT), // You might need to pass curve address
+        solService.getQuote(CONFIG.TOKENS.SOL.WETH_MINT, CONFIG.TOKENS.SOL.WSOL_MINT, 10**8), // 1 WETH price
+        solService.getSolBalance()
+    ]);
 
-            const status = statusResponse.value[0];
-
-            if (status) {
-                if (status.err) {
-                    // Transaction failed on-chain
-                    throw new Error(`Transaction failed: ${JSON.stringify(status.err)}`);
-                }
-
-                const confirmationStatus = status.confirmationStatus as TransactionConfirmationStatus;
-                
-                // If it reached the desired commitment, we are done
-                if (
-                    confirmationStatus === commitment || 
-                    confirmationStatus === 'finalized'
-                ) {
-                    return; // Success!
-                }
-            }
-
-            // 2. Check for blockhash expiration (optional but recommended for robustness)
-            if (Date.now() - lastBlockHeightCheck > blockheightPollInterval) {
-                const currentBlockHeight = await connection.getBlockHeight(commitment);
-
-                if (currentBlockHeight > lastValidBlockHeight) {
-                    // The blockhash has expired; the transaction will not land.
-                    throw new TransactionExpiredBlockheightExceededError(
-                        'Transaction signature is not found and its blockhash has expired.'
-                    );
-                }
-                lastBlockHeightCheck = Date.now();
-            }
-
-        } catch (error) {
-            // Re-throw any critical errors immediately
-            if (error instanceof Error && error.message.includes('failed to get signature status')) {
-                // This typically means a temporary RPC issue; continue polling
-            } else if (error instanceof TransactionExpiredBlockheightExceededError) {
-                throw error;
-            } else if (error instanceof Error && error.message.includes('Transaction failed:')) {
-                throw error;
-            }
-        }
-
-        // Wait before the next poll attempt
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-    
-    // If the loop completes without success, throw a timeout error
-    throw timeoutError;
-}
-
-// Load environment variables
-dotenv.config();
-
-// --- Configuration ---
-const RPC_ENDPOINT = process.env.RPC_ENDPOINT;
-const WALLET_SECRET_KEY = process.env.WALLET_SECRET_KEY;
-const JUPITER_API_URL = process.env.JUPITER_API_URL;
-
-// Token Mints (Example: WETH to ASSDAQ)
-const WETH_MINT = '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs'; // WETH
-const ASSDAQ_MINT = '7Tx8qTXSakpfaSFjdztPGQ9n2uyT1eUkYz7gYxxopump'; // ASSDAQ
-const SLIPPAGE_BPS = 50; // 50 basis points = 0.5%
-
-function loadWallet(): Keypair {
-    if (!WALLET_SECRET_KEY) {
-        throw new Error("WALLET_SECRET_KEY not set in .env");
-    }
     try {
-        // Handle Base58 encoded string
-        return Keypair.fromSecretKey(bs58.decode(WALLET_SECRET_KEY));
-    } catch (e) {
-        // Fallback: Handle array string (e.g., "[1, 2, 3, ...]")
-        try {
-            const secretKeyArray = JSON.parse(WALLET_SECRET_KEY) as number[];
-            return Keypair.fromSecretKey(Uint8Array.from(secretKeyArray));
-        } catch (error) {
-            throw new Error("Invalid WALLET_SECRET_KEY format.");
+        if (await handleRebalancing(solBalance, assdaqSol, assdaqEth, wethSol, ethEth, wh)) {
+            console.log('Rebalance, skip arbitrage this iteration...');
+            return;
         }
-    }
-}
-
-if (!RPC_ENDPOINT) {
-    throw new Error("RPC_ENDPOINT not set in .env");
-}
-
-// 1. Setup
-const wallet = loadWallet();
-const connection = new Connection(RPC_ENDPOINT, 'confirmed');
-// Using the public API client for simplicity.
-const jupiter = createJupiterApiClient({ basePath: JUPITER_API_URL });
-
-console.log(`Wallet Public Key: ${wallet.publicKey.toBase58()}`);
-
-async function quote(inputMint: string, outputMint: string, inputAmount: number): Promise<QuoteResponse> {
-    // 2. Get Quote
-    console.log(`\n--- 1. Fetching quote for ${inputAmount} ${inputMint} to ${outputMint}... ---`);
-    const quoteResponse = await jupiter.quoteGet({
-        inputMint: inputMint,
-        outputMint: outputMint,
-        amount: inputAmount,
-        slippageBps: SLIPPAGE_BPS,
-    });
-
-    if (!quoteResponse.routePlan) {
-        console.error("No route found for the swap.");
-        throw new Error("No route found for the swap.");
-    }
-
-    console.log(`Best route found with a gross ${quoteResponse.routePlan.length} step(s).`);
-    console.log(`Out Amount (Estimated): ${Number(quoteResponse.outAmount)} ${outputMint}`);
-    return quoteResponse;
-}
-
-async function swap(quoteResponse: QuoteResponse) {
-    // 3. Get Swap Transaction
-    console.log("\n--- 2. Getting swap transaction... ---");
-    const swapResponse = await jupiter.swapPost({
-        swapRequest: {
-            quoteResponse: quoteResponse,
-            userPublicKey: wallet.publicKey.toBase58(),
-            wrapAndUnwrapSol: true, // Automatically handle SOL wrapping/unwrapping
-            // prioritizationFeeLamports: "10000" // Optional: Include priority fee
-        }
-    });
-    
-    // Deserialize and sign the transaction
-    const swapTransactionBuf = Buffer.from(swapResponse.swapTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(swapTransactionBuf);
-    transaction.sign([wallet]);
-
-    // 4. Send and Confirm Transaction
-    console.log("\n--- 3. Sending and confirming transaction... ---");
-    
-    // Get latest blockhash for confirmation
-    const latestBlockhash = await connection.getLatestBlockhash();
-    
-    const rawTransaction = transaction.serialize();
-    const txid = await connection.sendRawTransaction(rawTransaction, {
-        skipPreflight: true,
-        maxRetries: 2,
-    });
-
-    console.log(`Transaction Signature: ${txid}`);
-    
-
-    // Assuming 'txid', 'latestBlockhash', and 'connection' are defined from previous steps
-    try {
-        await pollTransactionConfirmation(
-            connection,
-            txid,
-            latestBlockhash.lastValidBlockHeight,
-            'confirmed' // The desired commitment level
-        );
-
-        // 🎉 If the code reaches here, the transaction is successfully confirmed.
-        console.log(`Transaction ${txid} successfully confirmed at 'confirmed' commitment.`);
-
     } catch (error) {
-        // ❌ Handle errors like transaction failure or blockhash expiration
-        console.error("Transaction confirmation failed:", error);
-        // You might want to re-throw or handle the error appropriately here
-        throw error; 
+        console.error('Rebalancing failed', error);
     }
-}
 
-async function main() {
+    // 2. Prepare State for Calculator
+    const wethPrice = Number(wethQuote.otherAmountThreshold) / (10 ** 9);
+    
+    const poolState: PoolState = {
+        ethReserveIn: uniswapReserves.reserveIn, // WETH
+        ethReserveOut: uniswapReserves.reserveOut, // ASSDAQ
+        solPoolBase: Number(pumpCurve.poolBaseAmount),
+        solPoolQuote: Number(pumpCurve.poolQuoteAmount),
+        wethPriceInSol: wethPrice
+    };
 
-    const inputAmount = 1000 * 10 ** 6;
+    // 3. Run Calculation (Synchronous, fast, pure math)
+    const result = calculator.findBestArbitrage(
+        assdaqSol, assdaqEth, wethSol, ethEth, 
+        poolState
+    );
 
-    // 2. Get Quote
-    console.log(`\n--- 1. Fetching quote for ${inputAmount} ASSDAQ to WETH... ---`);
-    const quoteResponse = await quote(ASSDAQ_MINT, WETH_MINT, inputAmount)
-
-    if (!quoteResponse.routePlan) {
-        console.error("No route found for the swap.");
+    // 4. Execute Decision
+    if (result.route === RouteDirection.NONE) {
+        console.log("No profitable route found.");
         return;
     }
 
-    swap(quoteResponse);
+    console.log(`OPPORTUNITY: ${result.route} | Input: ${result.inputAmount} | Profit (ASSDAQ): ${result.expectedProfitAssdaq}`);
+
+    // Re-calculate accurate profit in SOL using Jupiter for final check (optional but recommended)
+    const profitCheckQuote = await solService.getQuote(
+        CONFIG.TOKENS.SOL.ASSDAQ_MINT, 
+        CONFIG.TOKENS.SOL.WSOL_MINT, 
+        Math.floor(result.expectedProfitAssdaq * 10**6)
+    );
+    const realProfitSol = Number(profitCheckQuote.otherAmountThreshold) / 10**9;
+
+    if (realProfitSol > CONFIG.PROFIT_TRESHOLD_IN_SOL) {
+        console.log(`Executing with projected profit: ${realProfitSol} SOL`);
+
+        try {
+            if (result.route === RouteDirection.ETH_TO_SOL) {
+                // -------------------------------------------------------
+                // LOGIC A: Sell ASSDAQ on ETH -> Buy ASSDAQ on SOL
+                // -------------------------------------------------------
+                
+                console.log("Executing Route: ETH -> SOL");
+
+                await Promise.all([
+                    // 1. Solana Side: Swap WETH -> ASSDAQ
+                    // We use the ETH amount calculated to buy ASSDAQ on Sol
+                    // Note: Original script used 10**8 for WETH decimals on Solana
+                    solService.getQuote(
+                        CONFIG.TOKENS.SOL.WETH_MINT,   // Input: WETH
+                        CONFIG.TOKENS.SOL.ASSDAQ_MINT, // Output: ASSDAQ
+                        Math.floor(result.crossChainAmount * 10**8)
+                    ).then(quote => solService.executeSwap(quote)),
+
+                    // 2. Ethereum Side: Swap ASSDAQ -> ETH
+                    // Input: The 'bestI' from the calculator
+                    ethService.executeSwap(
+                        CONFIG.TOKENS.ETH.ASSDAQ_CA, // Input: ASSDAQ
+                        CONFIG.TOKENS.ETH.WETH_CA,   // Output: WETH (Native ETH)
+                        result.inputAmount.toString(), 
+                        false // isNativeIn: false (we are sending ERC20)
+                    )
+                ]);
+
+            } else {
+                // -------------------------------------------------------
+                // LOGIC B: Sell ASSDAQ on SOL -> Buy ASSDAQ on ETH
+                // -------------------------------------------------------
+
+                console.log("Executing Route: SOL -> ETH");
+
+                // 1. Solana Side: Swap ASSDAQ -> SOL
+                // Note: Original script swapped to WSOL_MINT (So111...), not the WETH_MINT
+                const solSwapPromise = solService.getQuote(
+                    CONFIG.TOKENS.SOL.ASSDAQ_MINT, // Input: ASSDAQ
+                    CONFIG.TOKENS.SOL.WSOL_MINT,   // Output: SOL (WSOL)
+                    Math.floor(result.inputAmount * 10**6) // ASSDAQ decimals
+                ).then(quote => solService.executeSwap(quote));
+
+                // 2. Ethereum Side: Swap ETH -> ASSDAQ
+                // We use the ETH result from the Sol swap to buy ASSDAQ on Eth
+                const ethSwapPromise = ethService.executeSwap(
+                    CONFIG.TOKENS.ETH.WETH_CA,     // Input: WETH (Native ETH)
+                    CONFIG.TOKENS.ETH.ASSDAQ_CA,   // Output: ASSDAQ
+                    result.crossChainAmount.toFixed(18), // Format to Wei string
+                    true // isNativeIn: true (we are sending ETH)
+                );
+
+                await Promise.all([solSwapPromise, ethSwapPromise]);
+            }
+            
+            console.log("Arbitrage execution completed.");
+
+        } catch (error) {
+            console.error("Execution failed:", error);
+        }
+    }
 }
 
-main().catch(err => {
-    console.error("An error occurred in main function:", err);
-});
+async function handleRebalancing(
+    solBal: number, 
+    assSol: number, 
+    assEth: number, 
+    wethSol: number, 
+    ethEth: number,
+    wh: Wormhole<"Mainnet">
+): Promise<boolean> {
+    const totalAssdaq = assSol + assEth;
+    const totalEth = wethSol + ethEth;
+    let res = false;
+
+    // ---------------------------------------------------------
+    // 1. Sell Excess SOL for WETH (on Solana)
+    // ---------------------------------------------------------
+    if (solBal > CONFIG.SOL_THRESHOLD_TO_SELL_WHEN_ABOVE_IT) {
+        console.log(`Rebalance: SOL balance (${solBal}) > (${CONFIG.SOL_THRESHOLD_TO_SELL_WHEN_ABOVE_IT}). Selling excess...`);
+        
+        try {
+            // Calculate amount to sell in Lamports
+            const amountToSwapLamports = Math.floor((solBal - CONFIG.SOL_TO_LEAVE) * 1e9);
+            
+            const quote = await solService.getQuote(
+                CONFIG.TOKENS.SOL.WSOL_MINT,       // Input: Native SOL
+                CONFIG.TOKENS.SOL.WETH_MINT,  // Output: WETH (on Sol)
+                amountToSwapLamports
+            );
+            
+            await solService.executeSwap(quote);
+            console.log("Excess SOL sold for WETH.");
+            res = true;
+        } catch (e) {
+            console.error("Failed to sell excess SOL:", e);
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 2. Bridge ASSDAQ (Solana <-> Ethereum)
+    // ---------------------------------------------------------
+    try {
+        if (assEth < CONFIG.PERCENT_FOR_REBALANCE * totalAssdaq) {
+            // Case: Not enough ASSDAQ on ETH -> Bridge from SOL
+                console.log(`Rebalance: Low ASSDAQ on ETH (${assEth}) < (${CONFIG.PERCENT_FOR_REBALANCE * totalAssdaq}). Bridging Sol -> Eth...`);
+            
+            const amountToBridge = Math.floor((CONFIG.TARGET_PERCENT * totalAssdaq) - assEth);
+            if (amountToBridge > 0) {
+                await bridgeAssdaqSolToEth(amountToBridge, wh);
+                res = true;
+            }
+
+        } else if (assSol < CONFIG.PERCENT_FOR_REBALANCE * totalAssdaq) {
+            // Case: Not enough ASSDAQ on SOL -> Bridge from ETH
+            console.log(`Rebalance: Low ASSDAQ on SOL (${assSol}) < (${CONFIG.PERCENT_FOR_REBALANCE * totalAssdaq}). Bridging Eth -> Sol...`);
+            
+            const amountToBridge = Math.floor((CONFIG.TARGET_PERCENT * totalAssdaq) - assSol);
+            if (amountToBridge > 0) {
+                await bridgeAssdaqEthToSol(amountToBridge, wh);
+                res = true;
+            }
+        }
+    } catch (e) {
+        console.error("ASSDAQ Bridging failed:", e);
+    }
+
+    // ---------------------------------------------------------
+    // 3. Bridge ETH (Solana WETH <-> Ethereum Native ETH)
+    // ---------------------------------------------------------
+    try {
+        if (ethEth < CONFIG.PERCENT_FOR_REBALANCE * totalEth) {
+            // Case: Low Native ETH -> Bridge WETH from SOL
+            console.log(`Rebalance: Low ETH on ETH (${ethEth}) < (${totalEth * CONFIG.PERCENT_FOR_REBALANCE}). Bridging Sol -> Eth...`);
+            
+            // Original script used String() for ETH amounts
+            const amountToBridge = String((CONFIG.TARGET_PERCENT * totalEth) - ethEth);
+            
+            // Safety check to ensure we aren't sending negative or tiny amounts
+            if (Number(amountToBridge) > 0.0001) { 
+                await bridgeWethSolToEth(amountToBridge, wh);
+                res = true;
+            } else {
+                console.error(`${Number(amountToBridge)} is too low to bridge. Skipping.`);
+            }
+
+        } else if (wethSol < CONFIG.PERCENT_FOR_REBALANCE * totalEth) {
+            // Case: Low WETH on SOL -> Bridge Native ETH from ETH
+            console.log(`Rebalance: Low WETH on Sol (${wethSol}) < (${totalEth * CONFIG.PERCENT_FOR_REBALANCE}). Bridging Eth -> Sol...`);
+            
+            const amountToBridge = String((CONFIG.TARGET_PERCENT * totalEth) - wethSol);
+            
+            if (Number(amountToBridge) > 0.0001) {
+                await bridgeEthToWethSol(amountToBridge, wh);
+                res = true;
+            } else {
+                console.error(`${Number(amountToBridge)} is too low to bridge. Skipping.`);
+            }
+        }
+    } catch (e) {
+        console.error("ETH Bridging failed:", e);
+    }
+    return res;
+}
+
+async function main() {
+    const wh = await wormhole('Mainnet', [solana, evm], {
+        chains: {
+            Ethereum: { "rpc": CONFIG.RPC.ETHEREUM },
+            Solana: { "rpc": CONFIG.RPC.HELIUS }
+        }
+    });
+
+    let i = 0;
+    while (true) {
+        try {
+            await performArbitrageCheck(i++, wh);
+        } catch (e) {
+            console.error(`Loop Error at iteration ${i}: `, e);
+        }
+        console.log(`Sleeping ${CONFIG.SLEEP_BETWEEN_ITERATIONS_MS / 1000} seconds... `);
+        await sleep(CONFIG.SLEEP_BETWEEN_ITERATIONS_MS);
+    }
+}
+
+main().catch(console.error);

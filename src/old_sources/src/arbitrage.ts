@@ -596,12 +596,12 @@ async function main() {
 
     const wh: Wormhole<"Mainnet"> = await wormhole('Mainnet', [solana, evm], {
         chains: {
-        Ethereum: {
-            "rpc": process.env.ETH_RPC_ENDPOINT,
-        },
-        Solana: {
-            "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
-        }
+            Ethereum: {
+                "rpc": process.env.ETH_RPC_ENDPOINT,
+            },
+            Solana: {
+                "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
+            }
         }
     });
 
