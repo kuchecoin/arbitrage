@@ -12,8 +12,8 @@ import { Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { createJupiterApiClient, QuoteResponse } from '@jup-ag/api';
 import * as dotenv from 'dotenv';
 import bs58 from 'bs58';
-import evm from "@wormhole-foundation/sdk/platforms/evm";
-import solana from "@wormhole-foundation/sdk/platforms/solana";
+import evm from '@wormhole-foundation/sdk/evm';
+import solana from '@wormhole-foundation/sdk/solana';
 
 import { PumpAmmSdk, OnlinePumpAmmSdk } from "@pump-fun/pump-swap-sdk";
 
@@ -255,6 +255,7 @@ import { bridgeEthToWethSol } from './scripts/bridge-eth-to-weth-sol';
 import { bridgeWethSolToEth } from './scripts/bridge-weth-sol-to-eth';
 import { getSigner } from './utils/helpers';
 import { Wormhole } from '@wormhole-foundation/sdk-connect';
+import { wormhole } from '@wormhole-foundation/sdk/dist/cjs';
 dotenv.config();
 
 
@@ -439,18 +440,6 @@ async function getEthBalance(): Promise<number> {
 // simpleSwapEthForAssdaq().catch(console.error);
 
 
-const wh: Wormhole<"Mainnet"> = new Wormhole('Mainnet', [solana.Platform, evm.Platform], {
-    chains: {
-    Ethereum: {
-        "rpc": process.env.ETH_RPC_ENDPOINT,
-    },
-    Solana: {
-        "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
-    }
-    }
-});
-
-
 
 async function tryArbitrage(
         profitThresholdInSol: number, 
@@ -556,9 +545,9 @@ async function tryArbitrage(
         } else if (bestRoute === ROUTES['SELL ON SOL BUY ON ETH']) {
             const quoteAssToSol = await quote(ASSDAQ_MINT, WSOL_MINT, bestI * 10 ** 6)
             swap(quoteAssToSol).then(console.log).catch(console.error);
-            const quoteSolToWeth = await quote(WSOL_MINT, WETH_MINT, Number(quoteAssToSol.otherAmountThreshold));
-            swap(quoteSolToWeth).then(console.log).catch(console.error);
-            await simpleSwapEthForAssdaq(expectedEth.toFixed(9).toString())
+            // const quoteSolToWeth = await quote(WSOL_MINT, WETH_MINT, Number(quoteAssToSol.otherAmountThreshold));
+            // swap(quoteSolToWeth).then(console.log).catch(console.error);
+            await simpleSwapEthForAssdaq(expectedEth.toFixed(9).toString());
             // Promise.all([
             //     quote(ASSDAQ_MINT, WSOL_MINT, bestI)
             //     .then(swap),
@@ -605,6 +594,18 @@ async function getSolBalance(): Promise<number> {
 
 let iteration = 0;
 async function main() {
+
+    const wh: Wormhole<"Mainnet"> = await wormhole('Mainnet', [solana, evm], {
+        chains: {
+        Ethereum: {
+            "rpc": process.env.ETH_RPC_ENDPOINT,
+        },
+        Solana: {
+            "rpc": process.env.SOLANA_HELIUS_ENDPOINT,
+        }
+        }
+    });
+
     const initialAssdaqOnSol = await getSPLBalance(ASSDAQ_MINT);
     const initialWethOnSol = await getSPLBalance(WETH_MINT);
     const [initialAssdaqOnEth, initialEthOnEth] = await getAssdaqAndEthBalanceEth();
@@ -649,6 +650,11 @@ async function main() {
                 `Current Sol on sol: ${curSolBalance}`);
             const totalEth = currentWethOnSol + currentEthOnEth;
             const totalAssdaq = currentAssdaqOnSol + currentAssdaqOnEth;
+            if (curSolBalance > 1.99) {
+                console.log('Current SOL on SOL is more than 1.99. Selling SOL for WETH leave only 1 sol left');
+                const quoteSolToWeth = await quote(WSOL_MINT, WETH_MINT, Math.floor((curSolBalance - 1) * 1e9));
+                swap(quoteSolToWeth).then(console.log).catch(console.error);
+            }
             if (currentAssdaqOnEth < .25 * totalAssdaq) {
                 console.log('Current ASSDAQ on ETH is less than 25% of total. Initiate bridge...');
                 await bridgeAssdaqSolToEth(Math.floor(.5*totalAssdaq - currentAssdaqOnEth), wh).catch(console.error);
@@ -661,7 +667,7 @@ async function main() {
                 await bridgeWethSolToEth(String(.5 * Number(totalEth) - currentEthOnEth), wh).catch(console.error);
             } else if (currentWethOnSol < .25 * totalEth) {
                 console.log('Current WETH on Sol is less than 25% of total. Initiate bridge...');
-                await bridgeEthToWethSol(String(.5 * Number(totalEth) - currentWethOnSol)/*, wh*/).catch(console.error);
+                await bridgeEthToWethSol(String(.5 * Number(totalEth) - currentWethOnSol), wh).catch(console.error);
             }
         } catch (e) {
             console.log(`Error at iteration: ${iteration}`);
