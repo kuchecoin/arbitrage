@@ -248,14 +248,13 @@ async function swap(quoteResponse: QuoteResponse) {
 }
 
 import { BigNumberish, ethers } from "ethers";
-import { NttBindings } from '@wormhole-foundation/sdk-evm-ntt/dist/cjs/bindings';
 import { bridgeAssdaqEthToSol } from './bridge-ASSDAQ-eth-to-sol';
 import { bridgeAssdaqSolToEth } from './bridge-ASSDAQ-sol-to-eth';
 import { bridgeEthToWethSol } from './scripts/bridge-eth-to-weth-sol';
 import { bridgeWethSolToEth } from './scripts/bridge-weth-sol-to-eth';
 import { getSigner } from './utils/helpers';
 import { Wormhole } from '@wormhole-foundation/sdk-connect';
-import { wormhole } from '@wormhole-foundation/sdk/dist/cjs';
+import { wormhole } from '@wormhole-foundation/sdk';
 dotenv.config();
 
 
