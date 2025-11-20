@@ -1,1 +1,1 @@
-pkill npm
+pkill node
