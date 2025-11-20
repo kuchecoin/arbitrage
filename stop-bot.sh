@@ -1,1 +1,1 @@
-pkill node
+ps aux | grep "node" | grep "arbitrage" | grep -v grep | awk '{print $2}' | xargs kill
