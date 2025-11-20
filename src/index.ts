@@ -56,6 +56,18 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
         wethPriceInSol: wethPrice
     };
 
+    console.log(`\n---------Statistics-----------:\n`+
+        `ASSDAQ on SOL: ${assdaqSol}\n` +
+        `ASSDAQ on ETH: ${assdaqEth}\n` +
+        `WETH on SOL: ${wethSol}\n` +
+        `ETH on ETH: ${ethEth}\n` + 
+        `SOL on SOL: ${solBalance}\n` +
+        `WETH price in SOL: ${wethPrice}\n` +
+        `ASSDAQ in PumpSwap Pool: ${poolState.solPoolBase / 10 ** 6}\n` +
+        `SOL in PumpSwap Pool: ${poolState.solPoolQuote / 10 ** 9}\n` +
+        `ASSDAQ in UniSwap Pool: ${Number(poolState.ethReserveOut / 10n ** 9n) / 10 ** 9}\n` +
+        `ETH in UniSwap Pool: ${Number(poolState.ethReserveIn / 10n ** 9n) / 10 ** 9}`);
+
     // 3. Run Calculation (Synchronous, fast, pure math)
     const result = calculator.findBestArbitrage(
         assdaqSol, assdaqEth, wethSol, ethEth, 
