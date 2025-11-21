@@ -16,3 +16,6 @@ ETH_PRIVATE_KEY="###"
 
 # Jupiter's public API endpoint
 JUPITER_API_URL="https://quote-api.jup.ag/v6"
+
+# CoinMarketCap API KEY:
+CMC_API_KEY=###

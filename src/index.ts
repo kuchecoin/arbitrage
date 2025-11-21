@@ -12,19 +12,21 @@ import { bridgeAssdaqEthToSol } from './utils/bridge-ASSDAQ-eth-to-sol';
 import { bridgeAssdaqSolToEth } from './utils/bridge-ASSDAQ-sol-to-eth';
 import { bridgeEthToWethSol } from './utils/scripts/bridge-eth-to-weth-sol';
 import { bridgeWethSolToEth } from './utils/scripts/bridge-weth-sol-to-eth';
+import { CmcService } from './services/cmc';
 
 setupLogger();
 
 const ethService = new EthereumService();
 const solService = new SolanaService();
 const calculator = new ArbitrageCalculator();
+const cmcService = new CmcService();
 
 async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">) {
     console.info(`Iteration: ${iteration}`)
     // 1. Fetch Data (Async calls)
     const [
         assdaqSol, assdaqEth, wethSol, ethEth,
-        uniswapReserves, pumpCurve, wethQuote, solBalance
+        uniswapReserves, pumpCurve, solBalance, cmcPrices
     ] = await Promise.all([
         solService.getSPLBalance(CONFIG.TOKENS.SOL.ASSDAQ_MINT),
         ethService.getTokenBalance(CONFIG.TOKENS.ETH.ASSDAQ_CA),
@@ -32,8 +34,8 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
         ethService.getEthBalance(),
         ethService.getPairReserves(CONFIG.TOKENS.ETH.WETH_CA),
         solService.getPumpCurveState(CONFIG.PUMP_FUN_ASSDAQ_CURVE_ADDR),
-        solService.getQuote(CONFIG.TOKENS.SOL.WETH_MINT, CONFIG.TOKENS.SOL.WSOL_MINT, 10**8), // 1 WETH price
-        solService.getSolBalance()
+        solService.getSolBalance(),
+        cmcService.getEthAndSolPriceInUSD(iteration),
     ]);
 
     try {
@@ -46,7 +48,7 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
     }
 
     // 2. Prepare State for Calculator
-    const wethPrice = Number(wethQuote.otherAmountThreshold) / (10 ** 9);
+    const wethPrice = cmcPrices.ethPriceUSD / cmcPrices.solPriceUSD;
     
     const poolState: PoolState = {
         ethReserveIn: uniswapReserves.reserveIn, // WETH
@@ -62,6 +64,8 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
         `WETH on SOL: ${wethSol}\n` +
         `ETH on ETH: ${ethEth}\n` + 
         `SOL on SOL: ${solBalance}\n` +
+        `ETH price in USD: ${cmcPrices.ethPriceUSD}\n` +
+        `SOL price in USD: ${cmcPrices.solPriceUSD}\n` +
         `WETH price in SOL: ${wethPrice}\n` +
         `ASSDAQ in PumpSwap Pool: ${poolState.solPoolBase / 10 ** 6}\n` +
         `SOL in PumpSwap Pool: ${poolState.solPoolQuote / 10 ** 9}\n` +
