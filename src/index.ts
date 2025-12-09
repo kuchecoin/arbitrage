@@ -102,58 +102,45 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
                 // -------------------------------------------------------
                 // LOGIC A: Sell ASSDAQ on ETH -> Buy ASSDAQ on SOL
                 // -------------------------------------------------------
-                
                 console.log("Executing Route: ETH -> SOL");
-
-                await Promise.all([
-                    // 1. Solana Side: Swap WETH -> ASSDAQ
-                    // We use the ETH amount calculated to buy ASSDAQ on Sol
-                    // Note: Original script used 10**8 for WETH decimals on Solana
-                    solService.getQuote(
-                        CONFIG.TOKENS.SOL.WETH_MINT,   // Input: WETH
-                        CONFIG.TOKENS.SOL.ASSDAQ_MINT, // Output: ASSDAQ
-                        Math.floor(result.crossChainAmount * 10**8)
-                    ).then(quote => solService.executeSwap(quote)),
-
-                    // 2. Ethereum Side: Swap ASSDAQ -> ETH
-                    // Input: The 'bestI' from the calculator
-                    ethService.executeSwap(
-                        CONFIG.TOKENS.ETH.ASSDAQ_CA, // Input: ASSDAQ
-                        CONFIG.TOKENS.ETH.WETH_CA,   // Output: WETH (Native ETH)
-                        result.inputAmount.toString(), 
-                        false // isNativeIn: false (we are sending ERC20)
-                    )
-                ]);
-
+                // 1. Ethereum Side: Swap ASSDAQ -> ETH
+                // Input: The 'bestI' from the calculator
+                await ethService.executeSwap(
+                    CONFIG.TOKENS.ETH.ASSDAQ_CA, // Input: ASSDAQ
+                    CONFIG.TOKENS.ETH.WETH_CA,   // Output: WETH (Native ETH)
+                    result.inputAmount.toString(),
+                    false // isNativeIn: false (we are sending ERC20)
+                );
+                // 2. Solana Side: Swap WETH -> ASSDAQ
+                // We use the ETH amount calculated to buy ASSDAQ on Sol
+                // Note: Original script used 10**8 for WETH decimals on Solana
+                await solService.getQuote(
+                    CONFIG.TOKENS.SOL.WETH_MINT,   // Input: WETH
+                    CONFIG.TOKENS.SOL.ASSDAQ_MINT, // Output: ASSDAQ
+                    Math.floor(result.crossChainAmount * 10**8)
+                ).then(quote => solService.executeSwap(quote));
             } else {
                 // -------------------------------------------------------
                 // LOGIC B: Sell ASSDAQ on SOL -> Buy ASSDAQ on ETH
                 // -------------------------------------------------------
-
                 console.log("Executing Route: SOL -> ETH");
-
-                // 1. Solana Side: Swap ASSDAQ -> SOL
-                // Note: Original script swapped to WSOL_MINT (So111...), not the WETH_MINT
-                const solSwapPromise = solService.getQuote(
-                    CONFIG.TOKENS.SOL.ASSDAQ_MINT, // Input: ASSDAQ
-                    CONFIG.TOKENS.SOL.WSOL_MINT,   // Output: SOL (WSOL)
-                    Math.floor(result.inputAmount * 10**6) // ASSDAQ decimals
-                ).then(quote => solService.executeSwap(quote));
-
-                // 2. Ethereum Side: Swap ETH -> ASSDAQ
+                // 1. Ethereum Side: Swap ETH -> ASSDAQ
                 // We use the ETH result from the Sol swap to buy ASSDAQ on Eth
-                const ethSwapPromise = ethService.executeSwap(
+                await ethService.executeSwap(
                     CONFIG.TOKENS.ETH.WETH_CA,     // Input: WETH (Native ETH)
                     CONFIG.TOKENS.ETH.ASSDAQ_CA,   // Output: ASSDAQ
                     result.crossChainAmount.toFixed(18), // Format to Wei string
                     true // isNativeIn: true (we are sending ETH)
                 );
-
-                await Promise.all([solSwapPromise, ethSwapPromise]);
+                // 2. Solana Side: Swap ASSDAQ -> SOL
+                // Note: Original script swapped to WSOL_MINT (So111...), not the WETH_MINT
+                await solService.getQuote(
+                    CONFIG.TOKENS.SOL.ASSDAQ_MINT, // Input: ASSDAQ
+                    CONFIG.TOKENS.SOL.WSOL_MINT,   // Output: SOL (WSOL)
+                    Math.floor(result.inputAmount * 10**6) // ASSDAQ decimals
+                ).then(quote => solService.executeSwap(quote));
             }
-            
             console.log("Arbitrage execution completed.");
-
         } catch (error) {
             console.error("Execution failed:", error);
         }
