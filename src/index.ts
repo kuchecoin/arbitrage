@@ -41,6 +41,7 @@ async function performArbitrageCheck(iteration: number, wh: Wormhole<"Mainnet">)
     try {
         if (await handleRebalancing(solBalance, assdaqSol, assdaqEth, wethSol, ethEth, wh)) {
             console.log('Rebalance, skip arbitrage this iteration...');
+            await sleep(1200000)
             return;
         }
     } catch (error) {
